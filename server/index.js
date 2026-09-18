@@ -2,18 +2,46 @@ import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
 import fs from 'node:fs';
+import { exec } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { pool } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '..');
 const DIST_PATH = path.resolve(__dirname, '../dist');
 
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const app = express();
+
+async function ensureFrontendBuild() {
+  if (fs.existsSync(DIST_PATH)) return;
+
+  console.log('Frontend build not found. Running `npm run build` in project root...');
+
+  await new Promise((resolve, reject) => {
+    exec('npm run build', {
+      cwd: PROJECT_ROOT,
+      shell: true,
+      windowsHide: true,
+    }, (error, stdout, stderr) => {
+      if (stdout) console.log(stdout.trim());
+      if (stderr) console.error(stderr.trim());
+      if (error) {
+        reject(new Error(`npm run build failed: ${error.message}`));
+        return;
+      }
+      resolve();
+    });
+  });
+
+  if (!fs.existsSync(DIST_PATH)) {
+    throw new Error(`Frontend build still not found at ${DIST_PATH}.`);
+  }
+}
 
 const defaultAllowedOrigins = [
   'https://cdsticketing.3e-sumatera.com',
@@ -643,21 +671,32 @@ app.get('/api/site-master/count', async (_req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-if (fs.existsSync(DIST_PATH)) {
-  app.use(express.static(DIST_PATH, { index: false }));
+async function startServer() {
+  try {
+    await ensureFrontendBuild();
+  } catch (error) {
+    console.error('Gagal menyiapkan frontend build:', error.message);
+    process.exit(1);
+  }
 
-  app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => {
-    res.sendFile(path.join(DIST_PATH, 'index.html'));
-  });
-} else {
-  app.get('*', (_req, res) => {
-    res.status(404).json({
-      error: 'Frontend build not found. Run `npm run build` in the project root before starting the server in production.',
+  if (fs.existsSync(DIST_PATH)) {
+    app.use(express.static(DIST_PATH, { index: false }));
+
+    app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => {
+      res.sendFile(path.join(DIST_PATH, 'index.html'));
     });
+  } else {
+    app.get('*', (_req, res) => {
+      res.status(404).json({
+        error: 'Frontend build not found. Run `npm run build` in the project root before starting the server in production.',
+      });
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server CDS Monitoring berjalan di http://0.0.0.0:${PORT}`);
+    console.log(`Frontend build served from: ${DIST_PATH}`);
   });
 }
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server CDS Monitoring berjalan di http://0.0.0.0:${PORT}`);
-  console.log(`Frontend build served from: ${DIST_PATH}`);
-});
+startServer();
