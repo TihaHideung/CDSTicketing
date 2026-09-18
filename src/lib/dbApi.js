@@ -2,19 +2,20 @@
 // IndexedDB versi sebelumnya supaya data benar-benar tersimpan kumulatif di database
 // (bisa diakses lintas browser/komputer, bukan cuma di browser tempat upload).
 //
-// Jalankan backend-nya dulu: lihat server/README.md (npm install && npm start di
-// folder server/, default di http://localhost:4000).
+// Untuk production, frontend dan backend dipakai di domain yang sama; request API
+// menggunakan path relative /api agar tidak hardcode localhost atau domain API lain.
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const BASE_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || '';
 
 async function apiFetch(path, options) {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const url = `${BASE_URL}${path}`;
+  const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Gagal memanggil ${path} (status ${res.status}). Pastikan server backend jalan di ${BASE_URL}.`);
+    throw new Error(body.error || `Gagal memanggil ${path} (status ${res.status}). Pastikan backend berjalan dan route /api tersedia.`);
   }
   return res.json();
 }

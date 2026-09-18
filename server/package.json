@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "dev": "node --watch index.js",
     "start": "node index.js",
     "initdb": "node scripts/initdb.js"
   },

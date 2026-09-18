@@ -1,13 +1,48 @@
 import express from 'express';
 import cors from 'cors';
-import 'dotenv/config';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 import { pool } from './db.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+
 const app = express();
-app.use(cors());
+
+const defaultAllowedOrigins = [
+  'https://cdsticketing.3e-sumatera.com',
+  'https://www.cdsticketing.3e-sumatera.com',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+
+const envAllowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
+const allowedOrigins = [...new Set([...defaultAllowedOrigins, ...envAllowedOrigins])];
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`Origin ${origin} tidak diizinkan oleh CORS.`));
+  },
+  credentials: true,
+}));
+
 app.use(express.json({ limit: '50mb' }));
 
-const PORT = process.env.PORT || 4000;
+const PORT = Number(process.env.PORT || 4000);
 
 // Migrasi ringan: tambahkan kolom `pic` kalau belum ada (buat instalasi lama yang
 // database-nya sudah dibuat sebelum kolom ini ditambahkan). Aman dijalankan berkali-kali.
@@ -606,6 +641,6 @@ app.get('/api/site-master/count', async (_req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-app.listen(PORT, () => {
-  console.log(`CDS Monitoring API jalan di http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server CDS Monitoring berjalan di http://0.0.0.0:${PORT}`);
 });
