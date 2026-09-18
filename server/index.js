@@ -1,12 +1,14 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { pool } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const DIST_PATH = path.resolve(__dirname, '../dist');
 
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
@@ -641,6 +643,21 @@ app.get('/api/site-master/count', async (_req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
+if (fs.existsSync(DIST_PATH)) {
+  app.use(express.static(DIST_PATH, { index: false }));
+
+  app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => {
+    res.sendFile(path.join(DIST_PATH, 'index.html'));
+  });
+} else {
+  app.get('*', (_req, res) => {
+    res.status(404).json({
+      error: 'Frontend build not found. Run `npm run build` in the project root before starting the server in production.',
+    });
+  });
+}
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server CDS Monitoring berjalan di http://0.0.0.0:${PORT}`);
+  console.log(`Frontend build served from: ${DIST_PATH}`);
 });
