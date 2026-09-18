@@ -1,7 +1,3 @@
--- Skema database untuk CDS Monitoring (MySQL/MariaDB)
-CREATE DATABASE IF NOT EXISTS cds_monitoring CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE cds_monitoring;
-
 -- Ticket aktif kumulatif. Key utamanya `ticket_key` = `${regional}::${ticketId}` supaya
 -- upload regional yang satu tidak pernah menimpa ticket regional lain.
 CREATE TABLE IF NOT EXISTS active_tickets (
@@ -99,6 +95,48 @@ CREATE TABLE IF NOT EXISTS ticket_archive (
   INDEX idx_ticket_id (ticket_id),
   INDEX idx_rc (rc),
   INDEX idx_site_id (site_id)
+) ENGINE=InnoDB;
+
+-- Snapshot archive per tanggal upload, supaya upload baru hari ini mengganti snapshot
+-- tanggal itu tanpa menghapus riwayat archive dari hari lain.
+CREATE TABLE IF NOT EXISTS ticket_archive_history (
+  archive_id        BIGINT NOT NULL AUTO_INCREMENT,
+  ticket_key        VARCHAR(191) NOT NULL,
+  regional          VARCHAR(50)  NOT NULL,
+  ticket_id         VARCHAR(100) NOT NULL,
+  cat_alarm         VARCHAR(20)  NOT NULL,
+  sub_type          VARCHAR(150),
+  site_id           VARCHAR(100),
+  site_name         VARCHAR(255),
+  nop               VARCHAR(150),
+  cluster           VARCHAR(150),
+  regional_code     VARCHAR(50),
+  site_class        VARCHAR(50),
+  site_type         VARCHAR(50),
+  alarm_name        VARCHAR(255),
+  alarm_group       VARCHAR(255),
+  ems_name          VARCHAR(255),
+  clearance_status  VARCHAR(50),
+  rc_category_auto  VARCHAR(150),
+  rc                VARCHAR(50),
+  rc_sub            VARCHAR(100),
+  pic               VARCHAR(50),
+  detail            TEXT,
+  action_plan       TEXT,
+  last_occurred_on  DATETIME,
+  age_hours         DOUBLE,
+  duration_bucket   VARCHAR(20),
+  swfm_match_status VARCHAR(20),
+  merged_ticket_ids TEXT,
+  upload_date       DATE NOT NULL,
+  uploaded_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  edited_at         DATETIME,
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (archive_id),
+  UNIQUE KEY uq_archive_ticket_date (ticket_key, upload_date),
+  INDEX idx_archive_upload_date (upload_date),
+  INDEX idx_archive_ticket_key (ticket_key)
 ) ENGINE=InnoDB;
 
 -- Log trend harian: 1 baris per tanggal upload, isinya snapshot status terakhir sesuai
