@@ -20,6 +20,14 @@ const app = express();
 async function ensureFrontendBuild() {
   if (fs.existsSync(DIST_PATH)) return;
 
+  const isProductionRuntime = process.env.NODE_ENV === 'production' || process.env.HOSTINGER === '1';
+
+  if (isProductionRuntime) {
+    throw new Error(
+      'Frontend build not found. Build the frontend locally first and upload the generated dist/ folder before starting the production server on Hostinger.'
+    );
+  }
+
   const viteBin = path.join(PROJECT_ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
   console.log('Frontend build not found. Running local Vite build in project root...');
 
@@ -701,3 +709,4 @@ async function startServer() {
 }
 
 startServer();
+export default app;
