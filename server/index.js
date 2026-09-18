@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
 import fs from 'node:fs';
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { pool } from './db.js';
@@ -20,18 +20,19 @@ const app = express();
 async function ensureFrontendBuild() {
   if (fs.existsSync(DIST_PATH)) return;
 
-  console.log('Frontend build not found. Running `npm run build` in project root...');
+  const viteBin = path.join(PROJECT_ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
+  console.log('Frontend build not found. Running local Vite build in project root...');
 
   await new Promise((resolve, reject) => {
-    exec('npm run build', {
+    execFile(process.execPath, [viteBin, 'build'], {
       cwd: PROJECT_ROOT,
-      shell: true,
+      env: process.env,
       windowsHide: true,
     }, (error, stdout, stderr) => {
       if (stdout) console.log(stdout.trim());
       if (stderr) console.error(stderr.trim());
       if (error) {
-        reject(new Error(`npm run build failed: ${error.message}`));
+        reject(new Error(`Frontend build failed: ${error.message}`));
         return;
       }
       resolve();
