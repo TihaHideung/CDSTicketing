@@ -6,10 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "postinstall": "vite build",
     "preview": "vite preview",
     "start": "node server.cjs"
   },
   "dependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.4.20",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
@@ -18,18 +21,14 @@
     "jspdf": "^4.2.1",
     "lucide-react": "^1.44.0",
     "mysql2": "^3.11.0",
+    "postcss": "^8.4.47",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^3.0.0",
-    "uuid": "^11.1.1",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^6.1.1",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
-    "vite": "^8.3.0"
+    "uuid": "^11.1.1",
+    "vite": "^8.3.0",
+    "xlsx": "^0.18.5"
   },
   "overrides": {
     "uuid": "^11.1.1"
