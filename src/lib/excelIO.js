@@ -139,6 +139,9 @@ export const RC_BULK_TEMPLATE_COLUMNS = [
   { key: 'regional', label: 'Regional' },
   { key: 'nop', label: 'NOP' },
   { key: 'cluster', label: 'Cluster' },
+  { key: 'type', label: 'Tipe' },
+  { key: 'siteId', label: 'Site ID' },
+  { key: 'siteName', label: 'Site Name' },
   { key: 'rc', label: 'RC Category' },
   { key: 'rcSub', label: 'RC Subcategory' },
   { key: 'pic', label: 'PIC' },
@@ -158,6 +161,9 @@ export function buildBulkRcTemplateRows(rows = []) {
     Regional: row?.regional ?? '',
     NOP: row?.nop ?? '',
     Cluster: row?.cluster ?? '',
+    'Tipe': row?.catAlarm ?? row?.type ?? '',
+    'Site ID': row?.siteId ?? '',
+    'Site Name': row?.siteName ?? '',
     'RC Category': row?.rc ?? '',
     'RC Subcategory': row?.rcSub ?? '',
     PIC: row?.pic ?? '',
@@ -200,11 +206,14 @@ export async function exportBulkRcTemplate(rows = [], fileName = 'Bulk_RC_Templa
     { header: headers[1], key: 'regional', width: 18 },
     { header: headers[2], key: 'nop', width: 18 },
     { header: headers[3], key: 'cluster', width: 18 },
-    { header: headers[4], key: 'rc', width: 22 },
-    { header: headers[5], key: 'rcSub', width: 26 },
-    { header: headers[6], key: 'pic', width: 18 },
-    { header: headers[7], key: 'detail', width: 46 },
-    { header: headers[8], key: 'actionPlan', width: 46 },
+    { header: headers[4], key: 'type', width: 14 },
+    { header: headers[5], key: 'siteId', width: 20 },
+    { header: headers[6], key: 'siteName', width: 28 },
+    { header: headers[7], key: 'rc', width: 22 },
+    { header: headers[8], key: 'rcSub', width: 26 },
+    { header: headers[9], key: 'pic', width: 18 },
+    { header: headers[10], key: 'detail', width: 46 },
+    { header: headers[11], key: 'actionPlan', width: 46 },
   ];
 
   worksheet.addRows(data.map((row) => ({
@@ -212,6 +221,9 @@ export async function exportBulkRcTemplate(rows = [], fileName = 'Bulk_RC_Templa
     regional: row.Regional,
     nop: row.NOP,
     cluster: row.Cluster,
+    type: row['Tipe'],
+    siteId: row['Site ID'],
+    siteName: row['Site Name'],
     rc: row['RC Category'],
     rcSub: row['RC Subcategory'],
     pic: row.PIC,
@@ -261,18 +273,18 @@ export async function exportBulkRcTemplate(rows = [], fileName = 'Bulk_RC_Templa
   });
 
   for (let rowNum = 2; rowNum <= maxRow; rowNum += 1) {
-    worksheet.getCell(rowNum, 5).dataValidation = listValidation(RC_BULK_ALLOWED_VALUES.rc);
-    worksheet.getCell(rowNum, 6).dataValidation = {
+    worksheet.getCell(rowNum, 8).dataValidation = listValidation(RC_BULK_ALLOWED_VALUES.rc);
+    worksheet.getCell(rowNum, 9).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: [`INDIRECT("RC_"&E${rowNum})`],
+      formulae: [`INDIRECT("RC_"&H${rowNum})`],
       showDropDown: true,
       showErrorMessage: true,
       errorStyle: 'stop',
       errorTitle: 'Nilai tidak valid',
       error: 'Pilih subcategory yang sesuai dengan RC Category yang dipilih.',
     };
-    worksheet.getCell(rowNum, 7).dataValidation = listValidation(RC_BULK_ALLOWED_VALUES.pic);
+    worksheet.getCell(rowNum, 10).dataValidation = listValidation(RC_BULK_ALLOWED_VALUES.pic);
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -311,6 +323,9 @@ export async function readBulkRcUpload(file) {
         else if (normalized === 'regional') obj.regional = String(value ?? '').trim();
         else if (normalized === 'nop') obj.nop = String(value ?? '').trim();
         else if (normalized === 'cluster') obj.cluster = String(value ?? '').trim();
+        else if (normalized === 'tipe' || normalized === 'type' || normalized === 'catalarm') obj.type = String(value ?? '').trim();
+        else if (normalized === 'siteid') obj.siteId = String(value ?? '').trim();
+        else if (normalized === 'sitename') obj.siteName = String(value ?? '').trim();
         else if (normalized === 'rccategory' || normalized === 'rc') obj.rc = String(value ?? '').trim();
         else if (normalized === 'rcsubcategory' || normalized === 'subcategory') obj.rcSub = String(value ?? '').trim();
         else if (normalized === 'pic') obj.pic = String(value ?? '').trim();
