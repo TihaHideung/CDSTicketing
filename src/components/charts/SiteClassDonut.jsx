@@ -40,25 +40,27 @@ export default function SiteClassDonut({ summary }) {
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={220}>
-        <PieChart>
-          <Pie
-            data={siteClass}
-            dataKey="total"
-            nameKey="siteClass"
-            innerRadius={45}
-            outerRadius={80}
-            paddingAngle={2}
-            label={renderLabel}
-            labelLine
-          >
-            {siteClass.map((d, i) => (
-              <Cell key={i} fill={COLOR_MAP[d.siteClass] || FALLBACK_COLORS[i % FALLBACK_COLORS.length]} />
-            ))}
-          </Pie>
-          <Tooltip />
-        </PieChart>
-      </ResponsiveContainer>
+      <div className="-mt-2">
+        <ResponsiveContainer width="100%" height={190}>
+          <PieChart>
+            <Pie
+              data={siteClass}
+              dataKey="total"
+              nameKey="siteClass"
+              innerRadius={38}
+              outerRadius={70}
+              paddingAngle={2}
+              label={renderLabel}
+              labelLine
+            >
+              {siteClass.map((d, i) => (
+                <Cell key={i} fill={COLOR_MAP[d.siteClass] || FALLBACK_COLORS[i % FALLBACK_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
       {top && (
         <p className="text-xs text-slate-600 mt-2">
           Site class terbanyak: <strong>{top.siteClass}</strong> ({top.total} ticket,{' '}
