@@ -55,6 +55,7 @@ async function ensureFrontendBuild() {
 const defaultAllowedOrigins = [
   'https://cdsticketing.3e-sumatera.com',
   'https://www.cdsticketing.3e-sumatera.com',
+  'https://orangered-caribou-199611.hostingersite.com',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:3000',
@@ -67,10 +68,11 @@ const envAllowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .filter(Boolean);
 
 const allowedOrigins = [...new Set([...defaultAllowedOrigins, ...envAllowedOrigins])];
+const isHostingerOrigin = (origin) => typeof origin === 'string' && /(^|\.)hostingersite\.com$/i.test(origin);
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || isHostingerOrigin(origin)) {
       callback(null, true);
       return;
     }
