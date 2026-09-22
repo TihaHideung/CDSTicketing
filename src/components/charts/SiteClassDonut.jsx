@@ -40,6 +40,10 @@ export default function SiteClassDonut({ summary }) {
           </Pie>
           <Tooltip />
           <Legend
+            layout="horizontal"
+            align="center"
+            verticalAlign="top"
+            wrapperStyle={{ paddingTop: 8, width: '100%' }}
             formatter={(value, entry) => {
               const pct = total ? ((entry.payload.total / total) * 100).toFixed(1) : '0.0';
               return `${value} — ${entry.payload.total} (${pct}%)`;
