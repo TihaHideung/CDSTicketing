@@ -44,7 +44,7 @@ export default function App() {
   const [nopFilter, setNopFilter] = useState(ALL_KEY);
   const [clusterFilter, setClusterFilter] = useState(ALL_KEY);
   const [categoryFilter, setCategoryFilter] = useState(ALL_KEY);
-  const [durationFilter, setDurationFilter] = useState(ALL_KEY);
+  const [durationFilter, setDurationFilter] = useState([]); // array: bisa pilih beberapa Duration sekaligus
   const [rcFilter, setRcFilter] = useState(ALL_KEY);
   const [rcSubFilter, setRcSubFilter] = useState(ALL_KEY);
   const [dailyTrendLog, setDailyTrendLog] = useState([]);
@@ -92,7 +92,7 @@ export default function App() {
     if (nopFilter !== ALL_KEY) rows = rows.filter((r) => r.nop === nopFilter);
     if (clusterFilter !== ALL_KEY) rows = rows.filter((r) => r.cluster === clusterFilter);
     if (categoryFilter !== ALL_KEY) rows = rows.filter((r) => r.catAlarm === categoryFilter);
-    if (durationFilter !== ALL_KEY) rows = rows.filter((r) => r.duration === durationFilter);
+    if (durationFilter.length > 0) rows = rows.filter((r) => durationFilter.includes(r.duration));
     if (rcFilter === UNSET_KEY) rows = rows.filter((r) => !r.rc);
     else if (rcFilter !== ALL_KEY) {
       rows = rows.filter((r) => r.rc === rcFilter);
@@ -268,7 +268,7 @@ export default function App() {
       setNopFilter(ALL_KEY);
       setClusterFilter(ALL_KEY);
       setCategoryFilter(ALL_KEY);
-      setDurationFilter(ALL_KEY);
+      setDurationFilter([]);
       setRcFilter(ALL_KEY);
       setRcSubFilter(ALL_KEY);
       setMergeFile(null);

@@ -39,7 +39,7 @@ export default function Dashboard({
   if (!summary) {
     return (
       <div className="space-y-4">
-        <FilterBar {...filters} />
+        <FilterBar {...filters} showDateFilter={false} />
         <div className="bg-white rounded-xl border border-slate-200 p-10 text-center">
           <p className="text-slate-500 mb-4">Belum ada data untuk filter ini.</p>
           <button onClick={onGoToUpload} className="px-4 py-2 rounded-md bg-brand-red text-white font-medium">
@@ -55,7 +55,7 @@ export default function Dashboard({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <FilterBar {...filters} />
+        <FilterBar {...filters} showDateFilter={false} />
         <button
           onClick={handleExportAll}
           disabled={exporting}
