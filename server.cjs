@@ -1,18 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-import('./server/index.js')
-  .then(({ default: app }) => {
-    const port = Number(process.env.PORT || 4000)
-    const host = process.env.HOST || '0.0.0.0'
-    app.listen(port, host, () => console.log(`CDS Monitoring: http://${host}:${port}`))
-  })
-  .catch((error) => {
-    console.error('Application startup failed:', error)
-    process.exitCode = 1
-  })
-=======
-=======
->>>>>>> 38384bd (updated)
 // server.cjs cuma jembatan supaya Hostinger (yang butuh entry file CommonJS) bisa
 // menjalankan aplikasi ESM di server/index.js.
 //
@@ -26,8 +11,3 @@ import('./server/index.js').catch((error) => {
   console.error('Application startup failed:', error);
   process.exitCode = 1;
 });
-
-<<<<<<< HEAD
->>>>>>> ea24873 (Update Project)
-=======
->>>>>>> 38384bd (updated)

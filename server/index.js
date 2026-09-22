@@ -266,11 +266,44 @@ function getJakartaDateKey(date = new Date()) {
   return `${map.year}-${map.month}-${map.day}`;
 }
 
+/**
+ * Site Down TIDAK BOLEH punya Site ID duplikat (aturan yang sama seperti di frontend
+ * `src/lib/cleaning.js` -> dedupeSiteDownBySiteId). Kalau 1 Site ID sama-sama down di
+ * beberapa ticket sekaligus (mis. Heartbeat Failure + NE Is Disconnected barengan),
+ * dihitung SATU KALI saja, ambil yang durasinya paling lama (age_hours terbesar).
+ * Cell Down TIDAK di-dedup seperti ini karena beberapa sel bisa down bersamaan di
+ * site yang sama secara sah (masing-masing ticket = trouble berbeda).
+ *
+ * Fungsi ini WAJIB dipakai sebelum menghitung ringkasan apapun (termasuk snapshot
+ * trend harian) supaya angkanya selalu konsisten dengan yang ditampilkan di
+ * Dashboard/KPI (yang sudah menerapkan dedup ini di sisi frontend).
+ */
+function dedupeSiteDownBySiteId(rows) {
+  const cellDownRows = rows.filter((r) => r.cat_alarm === 'CellDown');
+  const siteDownRows = rows.filter((r) => r.cat_alarm !== 'CellDown');
+
+  const bySite = new Map();
+  for (const r of siteDownRows) {
+    const key = r.site_id || r.ticket_id;
+    if (!bySite.has(key)) {
+      bySite.set(key, r);
+      continue;
+    }
+    const existing = bySite.get(key);
+    if ((r.age_hours || 0) > (existing.age_hours || 0)) {
+      bySite.set(key, r);
+    }
+  }
+
+  return [...cellDownRows, ...bySite.values()];
+}
+
 function buildSnapshotSummary(rows) {
+  const dedupedRows = dedupeSiteDownBySiteId(rows);
   const byRegional = {};
   const total = { cellDown: 0, siteDown: 0, total: 0 };
 
-  for (const row of rows) {
+  for (const row of dedupedRows) {
     const regional = normalizeText(row.regional) || 'UNKNOWN';
     const group = byRegional[regional] || { cellDown: 0, siteDown: 0, total: 0 };
     if (row.cat_alarm === 'CellDown') {
@@ -373,9 +406,17 @@ app.post('/api/active-tickets/upsert', async (req, res) => {
     finalMap.set(key, merged);
   }
 
-  const [allArchiveRows] = await pool.query('SELECT ticket_key FROM ticket_archive');
-  const archivedKeys = new Set(allArchiveRows.map((r) => r.ticket_key));
-  const removedKeys = Array.from(archivedKeys).filter((key) => !finalMap.has(key));
+  // PENTING: "replace" HANYA boleh berlaku untuk regional yang benar-benar ada di
+  // upload ini. Satu kali "Proses" cuma berisi 1 file/1 regional — kalau pembanding
+  // "ticket lama yang harus dihapus" diambil dari SEMUA regional (bukan cuma regional
+  // yang sedang diupload), maka upload regional B akan ikut menghapus ticket regional
+  // A yang sebenarnya masih valid, hanya karena tidak ada di file regional B.
+  const incomingRegionals = new Set(cleanRows.map((r) => normalizeText(r.regional)).filter(Boolean));
+  const [allArchiveRows] = await pool.query('SELECT ticket_key, regional FROM ticket_archive');
+  const archivedKeys = allArchiveRows
+    .filter((r) => incomingRegionals.has(normalizeText(r.regional)))
+    .map((r) => r.ticket_key);
+  const removedKeys = archivedKeys.filter((key) => !finalMap.has(key));
 
   const conn = await pool.getConnection();
   try {
@@ -476,8 +517,17 @@ app.post('/api/active-tickets/upsert', async (req, res) => {
       );
     }
 
+    // PENTING: ringkasan trend harian (`daily_trend`) HARUS dihitung dari SELURUH
+    // ticket aktif di semua regional yang ada di database saat ini — BUKAN cuma dari
+    // baris upload yang baru saja diproses (`finalMap`). Satu kali "Proses" cuma
+    // berisi 1 file/1 regional, jadi kalau snapshot-nya diambil dari `finalMap` saja,
+    // upload regional kedua di hari yang sama akan MENIMPA (replace) trend hari itu
+    // dengan angka regional kedua doang, menghilangkan kontribusi regional pertama
+    // dari grafik trend walau ticket-nya sendiri tetap aman di database.
+    const [allActiveRowsForTrend] = await conn.query('SELECT * FROM active_tickets');
+    const snapshotSummary = buildSnapshotSummary(allActiveRowsForTrend);
+
     const currentSnapshot = Array.from(finalMap.values());
-    const snapshotSummary = buildSnapshotSummary(currentSnapshot);
 
     for (const row of currentSnapshot) {
       await conn.query(
