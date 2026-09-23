@@ -35,8 +35,8 @@ export default function AreaContributorBar({ summary }) {
             innerRadius={52}
             outerRadius={82}
             cx="50%"
-            cy="46%"
-            paddingAngle={2}
+            cy="60%"
+            paddingAngle={3}
             label={renderLabel}
             labelLine
             minAngle={12}
@@ -53,9 +53,9 @@ export default function AreaContributorBar({ summary }) {
               paddingTop: 8,
               maxWidth: '100%',
               overflow: 'hidden',
-              fontSize: '15px',
+              fontSize: '16px',
             }}
-            iconSize={10}
+            iconSize={12}
             formatter={(value, entry) => {
               const pct = overview.total ? ((entry.payload.value / overview.total) * 100).toFixed(1) : '0.0';
               return `${value} ${entry.payload.value} (${pct}%)`;
