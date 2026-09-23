@@ -50,9 +50,10 @@ export default function AreaContributorBar({ summary }) {
             verticalAlign="bottom"
             align="center"
             wrapperStyle={{
-              paddingTop: 10,
+              paddingTop: 8,
               maxWidth: '100%',
               overflow: 'hidden',
+              fontSize: '15px',
             }}
             iconSize={10}
             formatter={(value, entry) => {

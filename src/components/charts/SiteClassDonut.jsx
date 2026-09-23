@@ -47,8 +47,8 @@ export default function SiteClassDonut({ summary }) {
               data={siteClass}
               dataKey="total"
               nameKey="siteClass"
-              innerRadius={38}
-              outerRadius={70}
+              innerRadius={0}
+              outerRadius={72}
               paddingAngle={2}
               label={renderLabel}
               labelLine
