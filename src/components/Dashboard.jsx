@@ -90,13 +90,6 @@ export default function Dashboard({
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-5 text-xs text-slate-500">
-        <strong className="text-slate-700">Kenapa ada ticket berstatus "Under Review"?</strong> RC Category &amp;
-        Subcategory sekarang diisi MANUAL oleh petugas (klik ticket di tabel preview di bawah untuk mengisinya) —
-        setiap ticket baru sengaja dikosongkan dulu, tidak diisi otomatis dari Excel/SWFM. Ticket yang RC-nya belum
-        diisi tetap dihitung di semua chart lain, hanya tidak muncul di chart RC Category di atas sampai nanti diisi.
-      </div>
-
       <div>
         <h3 className="font-semibold text-slate-800 mb-2">Preview Ticket Active</h3>
         <TicketPreviewTable rows={viewRows} onRowClick={onRowClick} compact pageSize={10} />
