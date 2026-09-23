@@ -36,12 +36,7 @@ export default function RcCategoryBar({ title, data, underReviewCount = 0 }) {
           {total ? ((top.total / total) * 100).toFixed(1) : '0.0'}% dari kategori ini).
         </p>
       )}
-      {underReviewCount > 0 && (
-        <p className="text-xs text-slate-400 mt-1">
-          {underReviewCount} ticket lain berstatus <em>Under Review</em> karena RC Category belum diisi, tetapi tetap
-          dihitung di total keseluruhan.
-        </p>
-      )}
+
     </div>
   );
 }
