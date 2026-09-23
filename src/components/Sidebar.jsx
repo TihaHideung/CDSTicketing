@@ -39,7 +39,7 @@ export default function Sidebar({ active, onNavigate }) {
             <button
               key={key}
               onClick={() => handleMenuClick({ key, externalUrl })}
-              className={`w-full flex items-center gap-3 px-5 py-3 text-sm text-left transition-colors ${
+              className={`w-full flex items-center gap-3 px-5 py-6 text-sm text-left transition-colors ${
                 isActive
                   ? 'bg-brand-red text-white font-medium'
                   : 'text-slate-300 hover:bg-navy-900 hover:text-white'
@@ -52,9 +52,6 @@ export default function Sidebar({ active, onNavigate }) {
         })}
       </nav>
 
-      <div className="px-5 py-4 text-xs text-slate-500 border-t border-white/10">
-        Data tersimpan kumulatif di database — bisa diakses lintas sesi/perangkat.
-      </div>
     </aside>
   );
 }
