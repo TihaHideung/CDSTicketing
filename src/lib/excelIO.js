@@ -142,6 +142,7 @@ export const RC_BULK_TEMPLATE_COLUMNS = [
   { key: 'type', label: 'Tipe' },
   { key: 'siteId', label: 'Site ID' },
   { key: 'siteName', label: 'Site Name' },
+  { key: 'duration', label: 'Duration' },
   { key: 'rc', label: 'RC Category' },
   { key: 'rcSub', label: 'RC Subcategory' },
   { key: 'pic', label: 'PIC' },
@@ -164,6 +165,7 @@ export function buildBulkRcTemplateRows(rows = []) {
     'Tipe': row?.catAlarm ?? row?.type ?? '',
     'Site ID': row?.siteId ?? '',
     'Site Name': row?.siteName ?? '',
+    'Duration': row?.duration ?? '',
     'RC Category': row?.rc ?? '',
     'RC Subcategory': row?.rcSub ?? '',
     PIC: row?.pic ?? '',
@@ -202,19 +204,20 @@ export async function exportBulkRcTemplate(rows = [], fileName = 'Bulk_RC_Templa
   });
 
   worksheet.columns = [
-    { header: headers[0], key: 'ticketId', width: 18 },
-    { header: headers[1], key: 'regional', width: 18 },
-    { header: headers[2], key: 'nop', width: 18 },
-    { header: headers[3], key: 'cluster', width: 18 },
-    { header: headers[4], key: 'type', width: 14 },
-    { header: headers[5], key: 'siteId', width: 20 },
-    { header: headers[6], key: 'siteName', width: 28 },
-    { header: headers[7], key: 'rc', width: 22 },
-    { header: headers[8], key: 'rcSub', width: 26 },
-    { header: headers[9], key: 'pic', width: 18 },
-    { header: headers[10], key: 'detail', width: 46 },
-    { header: headers[11], key: 'actionPlan', width: 46 },
-  ];
+  { header: headers[0], key: 'ticketId', width: 18 },
+  { header: headers[1], key: 'regional', width: 18 },
+  { header: headers[2], key: 'nop', width: 18 },
+  { header: headers[3], key: 'cluster', width: 18 },
+  { header: headers[4], key: 'type', width: 14 },
+  { header: headers[5], key: 'siteId', width: 20 },
+  { header: headers[6], key: 'siteName', width: 28 },
+  { header: headers[7], key: 'duration', width: 18 },
+  { header: headers[8], key: 'rc', width: 22 },
+  { header: headers[9], key: 'rcSub', width: 26 },
+  { header: headers[10], key: 'pic', width: 18 },
+  { header: headers[11], key: 'detail', width: 46 },
+  { header: headers[12], key: 'actionPlan', width: 46 },
+];
 
   worksheet.addRows(data.map((row) => ({
     ticketId: row['Ticket ID'],
@@ -224,6 +227,7 @@ export async function exportBulkRcTemplate(rows = [], fileName = 'Bulk_RC_Templa
     type: row['Tipe'],
     siteId: row['Site ID'],
     siteName: row['Site Name'],
+    duration: row['Duration'],
     rc: row['RC Category'],
     rcSub: row['RC Subcategory'],
     pic: row.PIC,
@@ -273,18 +277,18 @@ export async function exportBulkRcTemplate(rows = [], fileName = 'Bulk_RC_Templa
   });
 
   for (let rowNum = 2; rowNum <= maxRow; rowNum += 1) {
-    worksheet.getCell(rowNum, 8).dataValidation = listValidation(RC_BULK_ALLOWED_VALUES.rc);
-    worksheet.getCell(rowNum, 9).dataValidation = {
+    worksheet.getCell(rowNum, 9).dataValidation = listValidation(RC_BULK_ALLOWED_VALUES.rc);
+    worksheet.getCell(rowNum, 10).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: [`INDIRECT("RC_"&H${rowNum})`],
+      formulae: [`INDIRECT("RC_"&I${rowNum})`],
       showDropDown: true,
       showErrorMessage: true,
       errorStyle: 'stop',
       errorTitle: 'Nilai tidak valid',
       error: 'Pilih subcategory yang sesuai dengan RC Category yang dipilih.',
     };
-    worksheet.getCell(rowNum, 10).dataValidation = listValidation(RC_BULK_ALLOWED_VALUES.pic);
+    worksheet.getCell(rowNum, 11).dataValidation = listValidation(RC_BULK_ALLOWED_VALUES.pic);
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
