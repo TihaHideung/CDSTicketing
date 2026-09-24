@@ -27,7 +27,8 @@ export default function RcCategoryBar({
         </div>
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={Math.max(220, data.length * 40)}>
+          <div className="overflow-y-auto max-h-[240px]">
+            <ResponsiveContainer width="100%" height={Math.max(220, data.length * 40)}>
             <BarChart data={data} layout="vertical" margin={{ left: 30, right: 20 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} />
               <XAxis type="number" allowDecimals={false} />
@@ -38,6 +39,7 @@ export default function RcCategoryBar({
               ))}
             </BarChart>
           </ResponsiveContainer>
+          </div>
           <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-3">
             {orderedBuckets.map((bucket) => (
               <div key={bucket} className="flex items-center gap-1.5 text-xs text-slate-600">
