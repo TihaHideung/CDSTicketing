@@ -15,6 +15,8 @@ export default function Dashboard({
   removedStats,
   dailyTrend,
   dailyTrendByRegion,
+  trendHasGranularFilter,
+  trendLogHasOlderData,
   regionalFilter,
   viewRows,
   filters,
@@ -69,9 +71,18 @@ export default function Dashboard({
         <KpiCards summary={summary} removedStats={removedStats} />
 
         {isAllRegional ? (
-          <TrendChart dataByRegion={dailyTrendByRegion} regions={REGIONS} />
+          <TrendChart
+            dataByRegion={dailyTrendByRegion}
+            regions={REGIONS}
+            hasGranularFilter={trendHasGranularFilter}
+            logHasOlderData={trendLogHasOlderData}
+          />
         ) : (
-          <TrendChart dataSingle={dailyTrend} />
+          <TrendChart
+            dataSingle={dailyTrend}
+            hasGranularFilter={trendHasGranularFilter}
+            logHasOlderData={trendLogHasOlderData}
+          />
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

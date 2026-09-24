@@ -1,4 +1,4 @@
-import { SITE_CLASS_ORDER, DURATION_BUCKETS, RC_UNDER_REVIEW } from './constants.js';
+import { SITE_CLASS_ORDER, DURATION_BUCKETS, RC_UNDER_REVIEW, matchesRegionalTag } from './constants.js';
 
 function isCellDown(row) {
   return row.catAlarm === 'CellDown';
@@ -227,4 +227,99 @@ export function buildDailyTrendByRegion(dailyTrendLog, regions) {
       return point;
     })
     .sort((a, b) => (a.date > b.date ? 1 : -1));
+}
+
+/**
+ * Cek apakah suatu item breakdown (1 baris di `entry.breakdown`) cocok dengan
+ * kombinasi filter NOP/Cluster/Category/Duration/RC/RC Sub yang sedang aktif.
+ * Filter Regional TIDAK dicek di sini karena ditangani terpisah (lihat pemanggil),
+ * supaya fungsi ini bisa dipakai baik untuk mode "1 Regional" maupun "Semua Regional".
+ */
+function breakdownItemMatchesFilters(item, criteria) {
+  const { nop, cluster, category, duration, rc, rcSub, rcUnset } = criteria;
+  if (nop && item.nop !== nop) return false;
+  if (cluster && item.cluster !== cluster) return false;
+  if (category && item.catAlarm !== category) return false;
+  if (duration && duration.length && !duration.includes(item.duration)) return false;
+  if (rcUnset && item.rc) return false;
+  if (rc && item.rc !== rc) return false;
+  if (rcSub && item.rcSub !== rcSub) return false;
+  return true;
+}
+
+function hasGranularFilter(criteria) {
+  const { nop, cluster, category, duration, rc, rcSub, rcUnset } = criteria;
+  return Boolean(nop || cluster || category || (duration && duration.length) || rc || rcSub || rcUnset);
+}
+
+/**
+ * Trend harian TOTAL, mengikuti SEMUA filter Dashboard yang aktif (Regional, NOP,
+ * Cluster, Category, Duration, RC, RC Sub) — bukan cuma filter Regional seperti
+ * `buildDailyTrend` lama. Membaca `entry.breakdown` (rincian granular per hari) kalau
+ * tersedia; kalau tidak (data lama sebelum fitur ini ada) dan tidak ada filter granular
+ * yang aktif, fallback ke `entry.byRegional`/`entry.total` seperti sebelumnya supaya
+ * histori lama tetap tampil. Kalau data lama tapi filter granular aktif, hari itu
+ * dilewati (bukan ditampilkan 0 yang menyesatkan) karena datanya memang tidak tersimpan.
+ */
+export function buildFilteredDailyTrend(dailyTrendLog, criteria = {}) {
+  const { regionalFilter } = criteria;
+  const granular = hasGranularFilter(criteria);
+  const result = [];
+
+  for (const entry of dailyTrendLog) {
+    if (Array.isArray(entry?.breakdown) && entry.breakdown.length) {
+      let cellDown = 0;
+      let siteDown = 0;
+      for (const item of entry.breakdown) {
+        if (regionalFilter && regionalFilter !== 'ALL' && !matchesRegionalTag(item.regional, regionalFilter)) continue;
+        if (!breakdownItemMatchesFilters(item, criteria)) continue;
+        if (item.catAlarm === 'CellDown') cellDown += item.count;
+        else siteDown += item.count;
+      }
+      result.push({ date: entry.date, cellDown, siteDown, total: cellDown + siteDown });
+    } else if (!granular) {
+      const fallbackTotal = { cellDown: 0, siteDown: 0, total: 0 };
+      if (!regionalFilter || regionalFilter === 'ALL') {
+        const t = entry?.total || fallbackTotal;
+        result.push({ date: entry.date, cellDown: t.cellDown ?? 0, siteDown: t.siteDown ?? 0, total: t.total ?? 0 });
+      } else {
+        const r = entry?.byRegional?.[regionalFilter] || fallbackTotal;
+        result.push({ date: entry.date, cellDown: r.cellDown ?? 0, siteDown: r.siteDown ?? 0, total: r.total ?? 0 });
+      }
+    }
+    // else: data lama + filter granular aktif -> hari ini dilewati (data tidak tersedia)
+  }
+
+  return result.sort((a, b) => (a.date > b.date ? 1 : -1));
+}
+
+/**
+ * Trend harian PER REGIONAL, mengikuti filter NOP/Cluster/Category/Duration/RC/RC Sub
+ * yang aktif (dipakai saat filter Regional = Semua Regional). Sama seperti
+ * `buildFilteredDailyTrend`, fallback ke `entry.byRegional` untuk data lama kalau
+ * belum ada filter granular yang dipilih.
+ */
+export function buildFilteredDailyTrendByRegion(dailyTrendLog, regions, criteria = {}) {
+  const granular = hasGranularFilter(criteria);
+  const result = [];
+
+  for (const entry of dailyTrendLog) {
+    if (Array.isArray(entry?.breakdown) && entry.breakdown.length) {
+      const point = { date: entry.date };
+      for (const reg of regions) point[reg] = 0;
+      for (const item of entry.breakdown) {
+        if (!breakdownItemMatchesFilters(item, criteria)) continue;
+        const reg = regions.find((r) => matchesRegionalTag(item.regional, r));
+        if (reg) point[reg] += item.count;
+      }
+      result.push(point);
+    } else if (!granular) {
+      const point = { date: entry.date };
+      const regionalTotals = entry?.byRegional || {};
+      for (const reg of regions) point[reg] = regionalTotals[reg]?.total ?? 0;
+      result.push(point);
+    }
+  }
+
+  return result.sort((a, b) => (a.date > b.date ? 1 : -1));
 }

@@ -30,7 +30,7 @@ function barLabel(props) {
  * dijumlahkan jadi satu. `dataSingle` (array of {date, cellDown, siteDown, total})
  * dipakai kalau filter-nya 1 regional tertentu.
  */
-export default function TrendChart({ dataByRegion, dataSingle, regions }) {
+export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranularFilter, logHasOlderData }) {
   const isByRegion = Array.isArray(dataByRegion);
   const data = isByRegion ? dataByRegion : dataSingle;
 
@@ -39,7 +39,9 @@ export default function TrendChart({ dataByRegion, dataSingle, regions }) {
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <h3 className="font-semibold text-slate-800 mb-1">Trend Harian</h3>
         <p className="text-xs text-slate-500">
-          Trend akan terbentuk setelah kamu memproses data harian. Saat ini belum ada hari yang tersimpan.
+          {hasGranularFilter && logHasOlderData
+            ? 'Belum ada hari yang cocok dengan kombinasi filter ini. Rincian per NOP/Cluster/Tipe/Duration/RC baru mulai tersimpan sejak update ini — hari-hari sebelumnya belum punya rinciannya, jadi tidak ikut tampil saat filter granular dipakai. Data baru ke depannya akan otomatis muncul di sini.'
+            : 'Trend akan terbentuk setelah kamu memproses data harian. Saat ini belum ada hari yang tersimpan.'}
         </p>
       </div>
     );

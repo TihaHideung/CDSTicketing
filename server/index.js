@@ -304,6 +304,10 @@ function buildSnapshotSummary(rows) {
   const dedupedRows = dedupeSiteDownBySiteId(rows);
   const byRegional = {};
   const total = { cellDown: 0, siteDown: 0, total: 0 };
+  // `breakdown`: rincian per kombinasi Regional/NOP/Cluster/Category/Duration/RC/RC Sub,
+  // supaya Trend Harian di frontend bisa dihitung ulang mengikuti filter yang aktif
+  // (bukan cuma filter Regional seperti sebelumnya), tanpa perlu query ulang ke DB.
+  const breakdownMap = new Map();
 
   for (const row of dedupedRows) {
     const regional = normalizeText(row.regional) || 'UNKNOWN';
@@ -318,9 +322,23 @@ function buildSnapshotSummary(rows) {
     group.total += 1;
     total.total += 1;
     byRegional[regional] = group;
+
+    const nop = normalizeText(row.nop);
+    const cluster = normalizeText(row.cluster);
+    const catAlarm = normalizeText(row.cat_alarm) || 'CellDown';
+    const duration = normalizeText(row.duration_bucket);
+    const rc = normalizeText(row.rc);
+    const rcSub = normalizeText(row.rc_sub);
+    const bKey = [regional, nop, cluster, catAlarm, duration, rc, rcSub].join('|');
+    const existingItem = breakdownMap.get(bKey);
+    if (existingItem) {
+      existingItem.count += 1;
+    } else {
+      breakdownMap.set(bKey, { regional, nop, cluster, catAlarm, duration, rc, rcSub, count: 1 });
+    }
   }
 
-  return { byRegional, total };
+  return { byRegional, total, breakdown: Array.from(breakdownMap.values()) };
 }
 
 function mergeArchiveValues(existingRow, incomingRow) {
@@ -671,10 +689,10 @@ app.get('/api/daily-trend', async (_req, res) => {
 });
 
 app.post('/api/daily-trend', async (req, res) => {
-  const { date, byRegional, total } = req.body;
+  const { date, byRegional, total, breakdown } = req.body;
   await pool.query(
     'INSERT INTO daily_trend (trend_date, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data=VALUES(data)',
-    [date, JSON.stringify({ byRegional, total })]
+    [date, JSON.stringify({ byRegional, total, breakdown: breakdown || [] })]
   );
   const [rows] = await pool.query('SELECT trend_date, data FROM daily_trend ORDER BY trend_date ASC');
   res.json(

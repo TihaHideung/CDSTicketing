@@ -9,7 +9,7 @@ import FilterBar, { ALL_KEY, UNSET_KEY } from './components/FilterBar.jsx';
 import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
 import { cleanMergedRows, matchAgainstSwfm, dedupeSiteDownBySiteId, validateRegionalRows } from './lib/cleaning.js';
 import { buildSwfmMaps } from './lib/swfmCheck.js';
-import { computeSummary, buildDailyTrend, buildDailyTrendByRegion, groupBySiteId } from './lib/aggregate.js';
+import { computeSummary, buildFilteredDailyTrend, buildFilteredDailyTrendByRegion, groupBySiteId } from './lib/aggregate.js';
 import { exportWorkbook } from './lib/exportExcel.js';
 import { REGIONS, MASTER_COLUMNS, matchesRegionalTag, RC_CATEGORIES, RC_STRUCTURE, PIC_OPTIONS, getSubcategoriesFor } from './lib/constants.js';
 import {
@@ -115,11 +115,37 @@ export default function App() {
 
   const summary = useMemo(() => (viewRows.length ? computeSummary(viewRows) : null), [viewRows]);
   const groupedBySite = useMemo(() => groupBySiteId(viewRows), [viewRows]);
-  const dailyTrend = useMemo(
-    () => buildDailyTrend(dailyTrendLog, regionalFilter === ALL_KEY ? 'ALL' : regionalFilter),
-    [dailyTrendLog, regionalFilter]
+
+  // Kriteria filter Dashboard, dinormalisasi (sentinel ALL_KEY/UNSET_KEY -> null/flag)
+  // supaya Trend Harian ikut filter NOP/Cluster/Category/Duration/RC/RC Sub yang aktif,
+  // bukan cuma filter Regional seperti sebelumnya.
+  const trendCriteria = useMemo(
+    () => ({
+      regionalFilter: regionalFilter === ALL_KEY ? 'ALL' : regionalFilter,
+      nop: nopFilter === ALL_KEY ? null : nopFilter,
+      cluster: clusterFilter === ALL_KEY ? null : clusterFilter,
+      category: categoryFilter === ALL_KEY ? null : categoryFilter,
+      duration: durationFilter,
+      rc: rcFilter !== ALL_KEY && rcFilter !== UNSET_KEY ? rcFilter : null,
+      rcSub: rcFilter !== ALL_KEY && rcFilter !== UNSET_KEY && rcSubFilter !== ALL_KEY ? rcSubFilter : null,
+      rcUnset: rcFilter === UNSET_KEY,
+    }),
+    [regionalFilter, nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter]
   );
-  const dailyTrendByRegion = useMemo(() => buildDailyTrendByRegion(dailyTrendLog, REGIONS), [dailyTrendLog]);
+
+  const dailyTrend = useMemo(
+    () => buildFilteredDailyTrend(dailyTrendLog, trendCriteria),
+    [dailyTrendLog, trendCriteria]
+  );
+  const dailyTrendByRegion = useMemo(
+    () => buildFilteredDailyTrendByRegion(dailyTrendLog, REGIONS, trendCriteria),
+    [dailyTrendLog, trendCriteria]
+  );
+  const trendHasGranularFilter =
+    Boolean(trendCriteria.nop || trendCriteria.cluster || trendCriteria.category) ||
+    trendCriteria.duration.length > 0 ||
+    Boolean(trendCriteria.rc || trendCriteria.rcSub || trendCriteria.rcUnset);
+  const trendLogHasOlderData = dailyTrendLog.length > 0;
 
   const handleRegionalChange = useCallback((val) => {
     setRegionalFilter(val);
@@ -462,6 +488,8 @@ export default function App() {
           removedStats={removedStats}
           dailyTrend={dailyTrend}
           dailyTrendByRegion={dailyTrendByRegion}
+          trendHasGranularFilter={trendHasGranularFilter}
+          trendLogHasOlderData={trendLogHasOlderData}
           regionalFilter={regionalFilter}
           viewRows={viewRows}
           filters={filterProps}
@@ -517,7 +545,8 @@ export default function App() {
     return null;
   }, [
     active, mergeFile, swfmFile, masterFile, processing, progressMessage, error,
-    masterImporting, masterCount, summary, removedStats, dailyTrend, dailyTrendByRegion, regionalFilter,
+    masterImporting, masterCount, summary, removedStats, dailyTrend, dailyTrendByRegion,
+    trendHasGranularFilter, trendLogHasOlderData, regionalFilter,
     nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, nopOptions, clusterOptions, viewRows,
     handleProcess, handleExport, handleImportMaster, handleDownloadBulkRcTemplate, handleBulkRcUpload,
   ]);
