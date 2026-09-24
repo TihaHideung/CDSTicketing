@@ -156,10 +156,10 @@ export function bucketDuration(ageHours) {
 
 // Label RC Category untuk ticket yang belum sempat diisi root cause-nya (baik yang
 // otomatis dari Excel/SWFM maupun yang manual dari petugas).
-export const RC_UNDER_REVIEW = 'Under Review';
+export const RC_UNDER_REVIEW = 'Under Investigation';
 
 // Struktur RC bertingkat: pilih RC Category dulu, baru RC Subcategory yang sesuai
-// muncul. Field ini SELALU kosong di awal (setiap upload) — sengaja dikosongkan
+// muncul. Field ini SELALU kosong di awal (setiap upload), sengaja dikosongkan
 // supaya diisi manual oleh petugas, tidak diisi otomatis dari Excel/SWFM.
 export const RC_STRUCTURE = {
   Power: ['Pemadaman PLN', 'Hardware', 'Vandalism', 'Anomaly Data'],
