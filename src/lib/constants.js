@@ -162,10 +162,10 @@ export const RC_UNDER_REVIEW = 'Under Investigation';
 // muncul. Field ini SELALU kosong di awal (setiap upload), sengaja dikosongkan
 // supaya diisi manual oleh petugas, tidak diisi otomatis dari Excel/SWFM.
 export const RC_STRUCTURE = {
-  Power: ['Pemadaman PLN', 'Hardware', 'Vandalism', 'Anomaly Data'],
-  Radio: ['Hardware', 'Vandalism', 'Support Event', 'Anomaly Data'],
+  Power: ['Pemadaman PLN', 'Hardware', 'Anomaly Data'],
+  Radio: ['Hardware', 'Support Event', 'Anomaly Data'],
   Transmisi: ['FO Cut', 'VLAN Issue', 'Hardware', 'Anomaly Data'],
-  Others: ['ComCase', 'Access', 'Reloc', 'NewSite', 'Dismantle', 'Anomaly Data'],
+  Others: ['ComCase', 'Access', 'Reloc', 'NewSite', 'Dismantle', 'Vandalism', 'Anomaly Data'],
 };
 export const RC_CATEGORIES = Object.keys(RC_STRUCTURE);
 
