@@ -112,13 +112,14 @@ export function computeSummary(rows) {
   const rcSubCellDown = rcCount(cellDownRows, 'rcSub');
   const rcSubSiteDown = rcCount(siteDownRows, 'rcSub');
 
-  // --- RC Category dipecah per Duration (buat chart batang bertumpuk warna-warni) ---
-  function rcByDuration(sourceRows) {
+  // --- RC Category/Subcategory dipecah per Duration (buat chart batang bertumpuk warna-warni) ---
+  function rcByDuration(sourceRows, field = 'rc') {
+    const labelKey = field === 'rc' ? 'rcCategory' : 'rcSubcategory';
     const map = new Map();
     for (const r of sourceRows) {
-      const key = r.rc || RC_UNDER_REVIEW;
+      const key = r[field] || RC_UNDER_REVIEW;
       if (!map.has(key)) {
-        map.set(key, Object.fromEntries([['rcCategory', key], ['total', 0], ...DURATION_BUCKETS.map((b) => [b, 0])]));
+        map.set(key, Object.fromEntries([[labelKey, key], ['total', 0], ...DURATION_BUCKETS.map((b) => [b, 0])]));
       }
       const bucket = map.get(key);
       if (bucket[r.duration] !== undefined) bucket[r.duration]++;
@@ -126,8 +127,10 @@ export function computeSummary(rows) {
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
   }
-  const rcCellDownByDuration = rcByDuration(cellDownRows);
-  const rcSiteDownByDuration = rcByDuration(siteDownRows);
+  const rcCellDownByDuration = rcByDuration(cellDownRows, 'rc');
+  const rcSiteDownByDuration = rcByDuration(siteDownRows, 'rc');
+  const rcSubCellDownByDuration = rcByDuration(cellDownRows, 'rcSub');
+  const rcSubSiteDownByDuration = rcByDuration(siteDownRows, 'rcSub');
 
   // --- Sub type breakdown Site Down ---
   const subTypeMap = new Map();
@@ -150,6 +153,10 @@ export function computeSummary(rows) {
     rcCategorySiteDownUnderReview: rcSiteDown.underReview,
     rcCategoryCellDownByDuration: rcCellDownByDuration,
     rcCategorySiteDownByDuration: rcSiteDownByDuration,
+    rcSubcategoryCellDownUnderReview: rcSubCellDown.underReview,
+    rcSubcategorySiteDownUnderReview: rcSubSiteDown.underReview,
+    rcSubcategoryCellDownByDuration: rcSubCellDownByDuration,
+    rcSubcategorySiteDownByDuration: rcSubSiteDownByDuration,
     rcSubcategoryCellDown: rcSubCellDown.list,
     rcSubcategorySiteDown: rcSubSiteDown.list,
     siteDownSubType,

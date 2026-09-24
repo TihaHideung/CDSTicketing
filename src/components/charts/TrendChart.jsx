@@ -3,6 +3,7 @@ import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, Legend, Resp
 
 const REGION_COLORS = { Sumbagut: '#e0301e', Sumbagteng: '#0ea5e9', Sumbagsel: '#22c55e' };
 
+
 function totalLabel(props) {
   const { x, y, value } = props;
   if (!value) return null;

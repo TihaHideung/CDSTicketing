@@ -81,11 +81,33 @@ export default function Dashboard({
             title="RC Category — Cell Down"
             data={summary.rcCategoryCellDownByDuration}
             underReviewCount={summary.rcCategoryCellDownUnderReview}
+            categoryKey="rcCategory"
+            label="RC Category"
+            emptyText="RC Category"
           />
           <RcCategoryBar
             title="RC Category — Site Down"
             data={summary.rcCategorySiteDownByDuration}
             underReviewCount={summary.rcCategorySiteDownUnderReview}
+            categoryKey="rcCategory"
+            label="RC Category"
+            emptyText="RC Category"
+          />
+          <RcCategoryBar
+            title="RC Subcategory — Cell Down"
+            data={summary.rcSubcategoryCellDownByDuration}
+            underReviewCount={summary.rcSubcategoryCellDownUnderReview}
+            categoryKey="rcSubcategory"
+            label="RC Subcategory"
+            emptyText="RC Subcategory"
+          />
+          <RcCategoryBar
+            title="RC Subcategory — Site Down"
+            data={summary.rcSubcategorySiteDownByDuration}
+            underReviewCount={summary.rcSubcategorySiteDownUnderReview}
+            categoryKey="rcSubcategory"
+            label="RC Subcategory"
+            emptyText="RC Subcategory"
           />
         </div>
       </div>
