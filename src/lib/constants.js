@@ -43,6 +43,11 @@ export const HEADER_ALIASES = {
   'Ticket Number Inap': 'Ticket ID',
 };
 
+// Password gate untuk halaman "Upload Data" di sidebar. Sengaja disimpan di sini
+// (bukan di backend/.env) sesuai permintaan — simpel, tapi berarti siapa pun yang
+// buka file JS hasil build lewat DevTools browser bisa melihat nilainya.
+export const UPLOAD_PAGE_PASSWORD = 'Cds123';
+
 // Kolom pada file Master Site Detail (dipakai untuk lookup Cluster & Site Name
 // berdasarkan Site ID).
 export const MASTER_COLUMNS = {

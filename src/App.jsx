@@ -5,6 +5,7 @@ import UploadPanel from './components/UploadPanel.jsx';
 import Dashboard from './components/Dashboard.jsx';
 import TicketPreviewTable from './components/TicketPreviewTable.jsx';
 import TicketDetailModal from './components/TicketDetailModal.jsx';
+import PasswordGateModal from './components/PasswordGateModal.jsx';
 import FilterBar, { ALL_KEY, UNSET_KEY } from './components/FilterBar.jsx';
 import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
 import { cleanMergedRows, matchAgainstSwfm, dedupeSiteDownBySiteId, validateRegionalRows } from './lib/cleaning.js';
@@ -26,8 +27,50 @@ import {
   getSiteMasterCount,
 } from './lib/dbApi.js';
 
+// Halaman "Upload Data" dikunci password. Status "sudah buka password" disimpan di
+// sessionStorage (BUKAN localStorage) supaya: (1) tidak perlu masukin ulang selama tab
+// browser ini belum ditutup, tapi (2) begitu tab/browser ditutup atau dibuka dari
+// device/browser lain, sessionStorage-nya kosong lagi -> wajib masukin password lagi.
+const UPLOAD_SESSION_KEY = 'cds_upload_unlocked';
+
+function isUploadUnlockedInSession() {
+  try {
+    return sessionStorage.getItem(UPLOAD_SESSION_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export default function App() {
-  const [active, setActive] = useState('upload');
+  const [uploadUnlocked, setUploadUnlocked] = useState(isUploadUnlockedInSession);
+  const [showUploadPasswordModal, setShowUploadPasswordModal] = useState(false);
+  const [active, setActive] = useState(() => (isUploadUnlockedInSession() ? 'upload' : 'dashboard'));
+
+  // Semua navigasi ANTAR HALAMAN (sidebar, tombol "Upload Data Sekarang" di Dashboard,
+  // dll) harus lewat fungsi ini, bukan setActive langsung, supaya halaman Upload selalu
+  // tercegat kalau belum unlock di sesi browser ini.
+  const goToPage = useCallback(
+    (page) => {
+      if (page === 'upload' && !uploadUnlocked) {
+        setShowUploadPasswordModal(true);
+        return;
+      }
+      setActive(page);
+    },
+    [uploadUnlocked]
+  );
+
+  const handleUploadUnlockSuccess = useCallback(() => {
+    try {
+      sessionStorage.setItem(UPLOAD_SESSION_KEY, 'true');
+    } catch {
+      // sessionStorage tidak tersedia (mis. mode private ekstrem) -> tetap izinkan buka
+      // untuk sesi render ini saja, cuma tidak akan "diingat" kalau di-refresh.
+    }
+    setUploadUnlocked(true);
+    setShowUploadPasswordModal(false);
+    setActive('upload');
+  }, []);
 
   const [mergeFile, setMergeFile] = useState(null);
   const [swfmFile, setSwfmFile] = useState(null);
@@ -493,7 +536,7 @@ export default function App() {
           regionalFilter={regionalFilter}
           viewRows={viewRows}
           filters={filterProps}
-          onGoToUpload={() => setActive('upload')}
+          onGoToUpload={() => goToPage('upload')}
           onRowClick={(r) => setSelectedTicketKey(r._key)}
           onExportExcel={handleExport}
         />
@@ -553,7 +596,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar active={active} onNavigate={setActive} />
+      <Sidebar active={active} onNavigate={goToPage} />
       <div className="flex-1 flex flex-col">
         <Topbar active={active} lastProcessedAt={lastProcessedAt} />
         {loadError && (
@@ -565,6 +608,12 @@ export default function App() {
       </div>
       {selectedTicket && (
         <TicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicketKey(null)} onSave={handleSaveTicket} />
+      )}
+      {showUploadPasswordModal && (
+        <PasswordGateModal
+          onSuccess={handleUploadUnlockSuccess}
+          onClose={() => setShowUploadPasswordModal(false)}
+        />
       )}
     </div>
   );
