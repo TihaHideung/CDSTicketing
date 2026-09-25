@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid, LabelList } from 'recharts';
+import { TREND_PERIODS, aggregateTrendByPeriod, aggregateTrendByRegionByPeriod } from '../../lib/aggregate.js';
 
 const REGION_COLORS = { Sumbagut: '#e0301e', Sumbagteng: '#0ea5e9', Sumbagsel: '#22c55e' };
 
@@ -24,17 +25,49 @@ function barLabel(props) {
   );
 }
 
+function PeriodSelector({ period, onChange }) {
+  return (
+    <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+      {TREND_PERIODS.map((p) => (
+        <button
+          key={p.key}
+          type="button"
+          onClick={() => onChange(p.key)}
+          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+            period === p.key ? 'bg-white text-brand-red shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
  * `dataByRegion` diisi (array of {date, Sumbagut, Sumbagteng, Sumbagsel}) kalau filter
  * yang aktif adalah "Semua Regional" — batang tiap regional dijejerkan per hari, TIDAK
  * dijumlahkan jadi satu. `dataSingle` (array of {date, cellDown, siteDown, total})
  * dipakai kalau filter-nya 1 regional tertentu.
+ *
+ * Kedua data itu SELALU dalam bentuk harian (dari App.jsx) — pemilihan periode
+ * (Daily/Weekly/Monthly/Quarter/Annual) & agregasinya dilakukan di komponen ini sendiri,
+ * dengan nilai Weekly/Monthly/dst = RATA-RATA harian dalam periode itu (bukan total),
+ * karena data sumbernya adalah snapshot backlog harian, bukan jumlah ticket baru per hari.
  */
 export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranularFilter, logHasOlderData }) {
+  const [period, setPeriod] = useState('daily');
   const isByRegion = Array.isArray(dataByRegion);
-  const data = isByRegion ? dataByRegion : dataSingle;
+  const rawData = isByRegion ? dataByRegion : dataSingle;
 
-  if (!data || data.length < 1) {
+  const data = useMemo(() => {
+    if (!rawData) return rawData;
+    return isByRegion
+      ? aggregateTrendByRegionByPeriod(rawData, regions, period)
+      : aggregateTrendByPeriod(rawData, period);
+  }, [rawData, isByRegion, regions, period]);
+
+  if (!rawData || rawData.length < 1) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <h3 className="font-semibold text-slate-800 mb-1">Trend Harian</h3>
@@ -55,7 +88,13 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
 
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <h3 className="font-semibold text-slate-800 mb-1">Trend Harian — Perbandingan Antar Regional</h3>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <h3 className="font-semibold text-slate-800">Trend — Perbandingan Antar Regional</h3>
+          <PeriodSelector period={period} onChange={setPeriod} />
+        </div>
+        {period !== 'daily' && (
+          <p className="text-[11px] text-slate-400 mb-1">Nilai menunjukkan total akumulasi seluruh hari dalam periode ini.</p>
+        )}
         <ResponsiveContainer width="100%" height={280}>
           <ComposedChart data={lineData} margin={{ top: 24 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -90,7 +129,13 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
-      <h3 className="font-semibold text-slate-800 mb-1">Trend Harian</h3>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+        <h3 className="font-semibold text-slate-800">Trend</h3>
+        <PeriodSelector period={period} onChange={setPeriod} />
+      </div>
+      {period !== 'daily' && (
+        <p className="text-[11px] text-slate-400 mb-1">Nilai menunjukkan total akumulasi seluruh hari dalam periode ini.</p>
+      )}
       <ResponsiveContainer width="100%" height={280}>
         <ComposedChart data={data} margin={{ top: 24 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />

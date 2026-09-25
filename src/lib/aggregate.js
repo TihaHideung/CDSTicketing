@@ -323,3 +323,144 @@ export function buildFilteredDailyTrendByRegion(dailyTrendLog, regions, criteria
 
   return result.sort((a, b) => (a.date > b.date ? 1 : -1));
 }
+
+// ---------- Agregasi Trend Harian ke periode lebih besar (Weekly/Monthly/Quarter/Annual) ----------
+//
+// PENTING: Trend Harian itu snapshot jumlah ticket AKTIF pada hari itu (backlog), bukan
+// "ticket baru per hari" — satu ticket yang aktif berhari-hari akan muncul di banyak
+// snapshot harian. Untuk periode Weekly/Monthly/Quarter/Annual, angkanya dihitung
+// sebagai TOTAL penjumlahan seluruh hari dalam periode itu (sesuai permintaan) —
+// artinya ini akumulasi snapshot harian, BUKAN jumlah ticket unik dalam periode itu;
+// ticket yang aktif berhari-hari akan ikut kehitung di tiap hari itu.
+
+export const TREND_PERIODS = [
+  { key: 'daily', label: 'Daily' },
+  { key: 'weekly', label: 'Weekly' },
+  { key: 'monthly', label: 'Monthly' },
+  { key: 'quarter', label: 'Quarter' },
+  { key: 'annual', label: 'Annual' },
+];
+
+const MONTH_NAMES_ID = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+];
+
+function formatShortDate(d) {
+  return `${String(d.getDate()).padStart(2, '0')} ${MONTH_NAMES_ID[d.getMonth()]}`;
+}
+
+/**
+ * Info minggu ISO (Senin sebagai awal minggu, minggu pertama tahun = minggu yang
+ * memuat hari Kamis pertama) — dipakai supaya penomoran minggu konsisten dengan
+ * kalender pada umumnya, bukan sekadar "hari ke-N dibagi 7".
+ */
+function isoWeekInfo(date) {
+  const day = (date.getDay() + 6) % 7; // Senin=0 ... Minggu=6
+  const monday = new Date(date);
+  monday.setDate(date.getDate() - day);
+  monday.setHours(0, 0, 0, 0);
+
+  const thursday = new Date(monday);
+  thursday.setDate(monday.getDate() + 3);
+  const isoYear = thursday.getFullYear();
+
+  const firstThursday = new Date(isoYear, 0, 1);
+  const firstThursdayOffset = (firstThursday.getDay() + 6) % 7;
+  firstThursday.setDate(firstThursday.getDate() - firstThursdayOffset + 3);
+
+  const weekNumber = 1 + Math.round((thursday - firstThursday) / (7 * 24 * 60 * 60 * 1000));
+  return { isoYear, weekNumber, monday };
+}
+
+/**
+ * Tentukan "grup periode" (key unik untuk pengelompokan) + label yang ditampilkan
+ * untuk 1 tanggal (format 'YYYY-MM-DD'), sesuai periode yang dipilih user.
+ */
+function getPeriodBucket(dateKey, period) {
+  const d = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return { key: dateKey, label: dateKey };
+
+  if (period === 'weekly') {
+    const { isoYear, weekNumber, monday } = isoWeekInfo(d);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return {
+      key: `${isoYear}-W${String(weekNumber).padStart(2, '0')}`,
+      label: `${formatShortDate(monday)} - ${formatShortDate(sunday)}`,
+    };
+  }
+  if (period === 'monthly') {
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    return { key: `${y}-${String(m + 1).padStart(2, '0')}`, label: `${MONTH_NAMES_ID[m]} ${y}` };
+  }
+  if (period === 'quarter') {
+    const y = d.getFullYear();
+    const q = Math.floor(d.getMonth() / 3) + 1;
+    return { key: `${y}-Q${q}`, label: `Q${q} ${y}` };
+  }
+  if (period === 'annual') {
+    const y = d.getFullYear();
+    return { key: `${y}`, label: `${y}` };
+  }
+  // 'daily' (default): tiap hari = grupnya sendiri
+  return { key: dateKey, label: dateKey };
+}
+
+/**
+ * Kelompokkan hasil `buildFilteredDailyTrend` (array {date, cellDown, siteDown, total})
+ * ke periode Weekly/Monthly/Quarter/Annual, dengan nilai = TOTAL penjumlahan seluruh
+ * hari dalam periode itu. Untuk period 'daily', data dikembalikan apa adanya.
+ *
+ * Catatan: karena data sumbernya snapshot ticket AKTIF per hari (bukan "ticket baru per
+ * hari"), 1 ticket yang aktif berhari-hari ikut terhitung di tiap hari itu — jadi angka
+ * Weekly/Monthly/dst ini akumulasi snapshot harian, bukan jumlah ticket unik.
+ */
+export function aggregateTrendByPeriod(dailyData, period) {
+  if (!Array.isArray(dailyData) || !dailyData.length || period === 'daily') return dailyData || [];
+
+  const buckets = new Map();
+  for (const row of dailyData) {
+    const { key, label } = getPeriodBucket(row.date, period);
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { key, label, cellDown: 0, siteDown: 0, total: 0 };
+      buckets.set(key, bucket);
+    }
+    bucket.cellDown += Number(row.cellDown) || 0;
+    bucket.siteDown += Number(row.siteDown) || 0;
+    bucket.total += Number(row.total) || 0;
+  }
+
+  return Array.from(buckets.values())
+    .sort((a, b) => (a.key > b.key ? 1 : -1))
+    .map((b) => ({ date: b.label, cellDown: b.cellDown, siteDown: b.siteDown, total: b.total }));
+}
+
+/**
+ * Sama seperti `aggregateTrendByPeriod`, tapi untuk hasil `buildFilteredDailyTrendByRegion`
+ * (array {date, [namaRegional]: jumlah, ...}) — nilai per regional juga TOTAL penjumlahan.
+ */
+export function aggregateTrendByRegionByPeriod(dailyData, regions, period) {
+  if (!Array.isArray(dailyData) || !dailyData.length || period === 'daily') return dailyData || [];
+
+  const buckets = new Map();
+  for (const row of dailyData) {
+    const { key, label } = getPeriodBucket(row.date, period);
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { key, label, sums: {} };
+      for (const reg of regions) bucket.sums[reg] = 0;
+      buckets.set(key, bucket);
+    }
+    for (const reg of regions) bucket.sums[reg] += Number(row[reg]) || 0;
+  }
+
+  return Array.from(buckets.values())
+    .sort((a, b) => (a.key > b.key ? 1 : -1))
+    .map((b) => {
+      const point = { date: b.label };
+      for (const reg of regions) point[reg] = b.sums[reg];
+      return point;
+    });
+}
