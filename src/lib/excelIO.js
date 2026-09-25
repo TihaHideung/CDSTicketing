@@ -7,6 +7,7 @@ import {
   SWFM_REQUIRED_HEADERS,
   MASTER_COLUMNS,
   MASTER_REQUIRED_HEADERS,
+  HEADER_ALIASES,
   RC_CATEGORIES,
   PIC_OPTIONS,
   RC_STRUCTURE,
@@ -23,6 +24,11 @@ const MAX_HEADER_ROW_SCAN = 6; // sebagian file punya baris ringkasan/kosong di 
 const CANONICAL_HEADER_MAP = new Map(
   Object.values({ ...MERGE_COLUMNS, ...SWFM_COLUMNS, ...MASTER_COLUMNS }).map((header) => [normalizeHeaderText(header), header])
 );
+// Alias header (nama kolom beda tapi isinya sama) ditambahkan setelah nama kanonis,
+// supaya kalau ada bentrok, nama kanonis aslinya yang menang.
+for (const [alias, canonical] of Object.entries(HEADER_ALIASES)) {
+  CANONICAL_HEADER_MAP.set(normalizeHeaderText(alias), canonical);
+}
 
 function normalizeHeaderText(value) {
   return String(value ?? '')
@@ -63,7 +69,10 @@ function findDataSheet(workbook, requiredHeaders) {
         const cell = ws[XLSX.utils.encode_cell({ r: headerRow, c })];
         header.push(cell ? String(cell.v).trim() : '');
       }
-      const normalizedHeader = header.map(normalizeHeaderText);
+      // Kanonisasi dulu lewat alias (mis. "Ticket Number Inap" -> "Ticket ID") sebelum
+      // dicek, supaya file dengan penamaan header berbeda tapi isinya sama tetap dikenali.
+      const canonicalHeader = header.map((h) => CANONICAL_HEADER_MAP.get(normalizeHeaderText(h)) || h);
+      const normalizedHeader = canonicalHeader.map(normalizeHeaderText);
       const hasAll = normalizedRequired.every((h) => normalizedHeader.includes(h));
       if (hasAll) return { ws, sheetName: name, headerRow };
     }

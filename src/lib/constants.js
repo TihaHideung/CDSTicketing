@@ -34,6 +34,15 @@ export const SWFM_COLUMNS = {
 };
 export const SWFM_REQUIRED_HEADERS = ['Ticket ID', 'Ticket SWFM Status'];
 
+// Beberapa sumber SWFM Check punya nama header berbeda untuk kolom yang secara isi
+// sama (nilai & formatnya identik dengan Ticket ID di file Merge, mis. "EM-..."/"IM-...").
+// Alias di sini dipetakan ke nama kolom kanonis di kiri, supaya file dgn header
+// berbeda tetap terbaca sebagai kolom yang sama. Tambahkan entry baru di sini kalau
+// nanti ketemu format SWFM lain dengan penamaan header yang berbeda lagi.
+export const HEADER_ALIASES = {
+  'Ticket Number Inap': 'Ticket ID',
+};
+
 // Kolom pada file Master Site Detail (dipakai untuk lookup Cluster & Site Name
 // berdasarkan Site ID).
 export const MASTER_COLUMNS = {
@@ -46,11 +55,12 @@ export const MASTER_COLUMNS = {
 };
 export const MASTER_REQUIRED_HEADERS = ['Site ID', 'Cluster'];
 
-// Kata kunci status SWFM yang dianggap "sudah ditangani" — dicek dengan `includes`
-// (bukan exact match) karena ejaan status di lapangan suka bervariasi, contoh nyata
-// yang ditemukan: "CANCELED" (bukan CANCELLED), "ESCALATED TO INSERA" (bukan cuma
-// "ESCALATED"), "Closed" (huruf kecil-besar campur).
-export const SWFM_HANDLED_KEYWORDS = ['CLOS', 'CANCEL', 'ESCALAT', 'RESOLV'];
+// Kata kunci status SWFM yang dianggap "sudah ditangani" (ticket dibuang/di-purge) —
+// dicek dengan `includes` (bukan exact match) karena ejaan status di lapangan suka
+// bervariasi, contoh nyata yang ditemukan: "CANCELED" (bukan CANCELLED), "Closed"
+// (huruf kecil-besar campur). Sengaja HANYA Closed & Cancelled — status lain seperti
+// Escalated/Resolved TIDAK dianggap selesai, jadi ticket-nya tetap tampil sebagai aktif.
+export const SWFM_HANDLED_KEYWORDS = ['CLOS', 'CANCEL'];
 
 export function isHandledStatus(status) {
   const s = String(status || '').trim().toUpperCase();
