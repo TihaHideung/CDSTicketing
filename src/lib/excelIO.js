@@ -48,6 +48,24 @@ function canonicalizeRow(row = {}) {
 }
 
 /**
+ * Ambil nilai 1 sel, mendukung dua representasi worksheet dari SheetJS:
+ * - Mode "dense" (opsi `{ dense: true }` saat baca) — worksheet-nya sendiri berupa
+ *   ARRAY (`ws[baris][kolom]`), jauh lebih ringan untuk sheet raksasa (puluhan-ratusan
+ *   ribu baris) dibanding mode biasa. Dipakai supaya file besar (mis. export SWFM yang
+ *   bisa >100rb baris) tidak bikin browser lemot/crash.
+ * - Mode biasa (per sel disimpan sebagai key "A1", "B2", dst pada object worksheet).
+ */
+function getCellValue(ws, r, c) {
+  if (Array.isArray(ws)) {
+    const row = ws[r];
+    const cell = row ? row[c] : undefined;
+    return cell ? cell.v : undefined;
+  }
+  const cell = ws[XLSX.utils.encode_cell({ r, c })];
+  return cell ? cell.v : undefined;
+}
+
+/**
  * Sebuah workbook bisa punya beberapa sheet (pivot manual, catatan, dll) selain sheet
  * data mentahnya, dan baris headernya juga tidak selalu di baris pertama (kadang ada
  * baris ringkasan/kosong di atasnya). Untuk menghindari salah baca, cari sheet DAN baris
@@ -59,15 +77,18 @@ function findDataSheet(workbook, requiredHeaders) {
 
   for (const name of workbook.SheetNames) {
     const ws = workbook.Sheets[name];
-    if (!ws['!ref']) continue;
+    // Beberapa file (mis. sheet chart/dialog tersembunyi, atau workbook yang sedikit
+    // rusak/dari tool lain) bisa punya nama sheet di `SheetNames` tapi datanya kosong
+    // atau malah tidak ada sama sekali di `workbook.Sheets`. Skip saja, jangan crash.
+    if (!ws || !ws['!ref']) continue;
     const range = XLSX.utils.decode_range(ws['!ref']);
     const lastRowToScan = Math.min(range.s.r + MAX_HEADER_ROW_SCAN, range.e.r);
 
     for (let headerRow = range.s.r; headerRow <= lastRowToScan; headerRow++) {
       const header = [];
       for (let c = range.s.c; c <= range.e.c; c++) {
-        const cell = ws[XLSX.utils.encode_cell({ r: headerRow, c })];
-        header.push(cell ? String(cell.v).trim() : '');
+        const v = getCellValue(ws, headerRow, c);
+        header.push(v != null ? String(v).trim() : '');
       }
       // Kanonisasi dulu lewat alias (mis. "Ticket Number Inap" -> "Ticket ID") sebelum
       // dicek, supaya file dengan penamaan header berbeda tapi isinya sama tetap dikenali.
@@ -85,15 +106,27 @@ function isCsvFile(file) {
   return name.endsWith('.csv') || file?.type === 'text/csv' || file?.type === 'application/csv';
 }
 
-async function readWorkbook(file) {
+/**
+ * `dense: true` dipakai di semua jenis file — representasi array-of-array SheetJS ini
+ * jauh lebih hemat memori & lebih cepat dibaca untuk sheet dengan puluhan-ratusan ribu
+ * baris (mis. export SWFM Check yang bisa >100.000 baris x puluhan kolom).
+ *
+ * `wantDates`: true (default) untuk file yang memang butuh kolom tanggal asli (Merge,
+ * Master Site). File SWFM Check TIDAK butuh tanggal sama sekali (cuma butuh Ticket ID +
+ * Status + RC Category), jadi dipanggil dengan `wantDates: false` — mem-parsing tanggal
+ * untuk >100rb baris itu mahal, jadi kalau tidak perlu, lebih baik dimatikan supaya
+ * proses baca file besar jauh lebih cepat (teruji: dari sempat >3 menit/gagal jadi
+ * hitungan puluhan detik).
+ */
+async function readWorkbook(file, { wantDates = true } = {}) {
   const buffer = await file.arrayBuffer();
 
   if (isCsvFile(file)) {
     const text = new TextDecoder('utf-8').decode(buffer);
-    return XLSX.read(text, { type: 'string', raw: false, cellDates: true });
+    return XLSX.read(text, { type: 'string', raw: false, cellDates: wantDates, dense: true });
   }
 
-  return XLSX.read(buffer, { type: 'array', cellDates: true });
+  return XLSX.read(buffer, { type: 'array', cellDates: wantDates, dense: true });
 }
 
 function sheetToJsonFromHeaderRow(ws, headerRow) {
@@ -118,7 +151,7 @@ export async function readMergeFile(file) {
  * Baca file SWFM Check (file validasi versi ringan).
  */
 export async function readSwfmCheckFile(file) {
-  const wb = await readWorkbook(file);
+  const wb = await readWorkbook(file, { wantDates: false });
   const found = findDataSheet(wb, SWFM_REQUIRED_HEADERS);
   if (!found) {
     throw new Error(

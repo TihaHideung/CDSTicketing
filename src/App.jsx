@@ -41,6 +41,19 @@ function isUploadUnlockedInSession() {
   }
 }
 
+/**
+ * Kasih browser kesempatan MENGGAMBAR ULANG layar (mis. update teks progress) sebelum
+ * lanjut ke pekerjaan berat yang sifatnya sinkron/blocking (parsing file besar). Tanpa
+ * ini, `setProgressMessage(...)` yang dipanggil sesaat sebelum kerjaan berat bisa saja
+ * tidak sempat kelihatan di layar sama sekali — browser jadi terkesan macet/hang padahal
+ * sebenarnya lagi memproses.
+ */
+function yieldToPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
+}
+
 export default function App() {
   const [uploadUnlocked, setUploadUnlocked] = useState(isUploadUnlockedInSession);
   const [showUploadPasswordModal, setShowUploadPasswordModal] = useState(false);
@@ -278,6 +291,7 @@ export default function App() {
     setError('');
     setProcessing(true);
     setProgressMessage('Membaca file Merge...');
+    await yieldToPaint();
     try {
       const now = new Date();
 
@@ -299,6 +313,7 @@ export default function App() {
       }
 
       setProgressMessage('Membersihkan data (Ticket ID, cleared, EMS USO_)...');
+      await yieldToPaint();
       const { cleaned, removed } = cleanMergedRows(mergeRaw, null, now, siteMasterMap);
       if (!cleaned.length) {
         throw new Error('Setelah validasi regional, tidak ada ticket yang bisa diproses dari file ini.');
@@ -306,7 +321,8 @@ export default function App() {
 
       let swfmResult = { handledMap: {}, infoMap: {}, totalRows: 0 };
       if (swfmFile) {
-        setProgressMessage('Membaca & memproses file SWFM Check...');
+        setProgressMessage('Membaca & memproses file SWFM Check... (file besar bisa makan waktu 30-60 detik, tunggu ya, jangan ditutup tab-nya)');
+        await yieldToPaint();
         const swfmRaw = await readSwfmCheckFile(swfmFile);
         swfmResult = buildSwfmMaps(swfmRaw);
 

@@ -210,6 +210,29 @@ function toTicketKey(regional, ticketId) {
   return `${normalizeText(regional)}::${normalizeText(ticketId)}`;
 }
 
+/**
+ * Identitas ticket yang dipakai sebagai `ticket_key` (primary key penyimpanan).
+ *
+ * KHUSUS SiteDown: identitasnya per SITE ID, bukan per Ticket ID — jadi kalau Site X
+ * sudah aktif SiteDown lalu muncul Ticket ID BARU untuk site yang sama (mis. ticket lama
+ * ditutup sistem sumber lalu dibuka ulang dengan nomor baru, padahal site-nya masih
+ * down), itu dianggap BARIS YANG SAMA (di-UPDATE), bukan baris baru — supaya data
+ * manual yang sudah diisi (RC/RC Sub/PIC/Detail/Action Plan) tidak hilang/kereset, dan
+ * juga tidak muncul sebagai 2 entry terpisah untuk site yang sama.
+ *
+ * CellDown TETAP per Ticket ID seperti biasa — 2 alarm CellDown di site yang sama pada
+ * waktu berbeda memang 2 masalah yang berbeda, jadi harus tetap dianggap entry terpisah.
+ */
+function computeTicketKey(row) {
+  const regional = normalizeText(row.regional);
+  const catAlarm = row.catAlarm || row.cat_alarm || '';
+  const siteId = normalizeText(row.siteId ?? row.site_id);
+  if (catAlarm === 'SiteDown' && siteId) {
+    return `${regional}::SITE::${siteId}`;
+  }
+  return toTicketKey(regional, row.ticketId ?? row.ticket_id);
+}
+
 function dateOnly(value) {
   if (!value) return null;
   const d = value instanceof Date ? value : new Date(value);
@@ -357,7 +380,21 @@ function mergeArchiveValues(existingRow, incomingRow) {
   if (!normalizeText(merged.detail) && preserve.detail) merged.detail = preserve.detail;
   if (!normalizeText(merged.action_plan) && preserve.action_plan) merged.action_plan = preserve.action_plan;
 
-  if (!merged.ticket_key) merged.ticket_key = toTicketKey(merged.regional, merged.ticket_id);
+  // Gabungkan histori Ticket ID (khusus SiteDown yang identitasnya per-Site): Ticket ID
+  // lama yang sudah tercatat di baris ini sebelumnya TIDAK boleh hilang cuma karena
+  // upload hari ini menyebut Ticket ID yang berbeda untuk site yang sama.
+  try {
+    const existingMerged = existingRow?.merged_ticket_ids ? JSON.parse(existingRow.merged_ticket_ids) : [];
+    const incomingMerged = incomingRow.merged_ticket_ids ? JSON.parse(incomingRow.merged_ticket_ids) : [];
+    const unioned = Array.from(
+      new Set([...(Array.isArray(existingMerged) ? existingMerged : []), ...(Array.isArray(incomingMerged) ? incomingMerged : [])])
+    );
+    merged.merged_ticket_ids = unioned.length ? JSON.stringify(unioned) : null;
+  } catch {
+    // kalau JSON lama korup/format tak terduga, biarkan nilai incoming apa adanya
+  }
+
+  if (!merged.ticket_key) merged.ticket_key = computeTicketKey(merged);
   return merged;
 }
 
@@ -373,25 +410,46 @@ app.post('/api/active-tickets/upsert', async (req, res) => {
   if (!Array.isArray(rows) || rows.length === 0) return res.json({ upserted: 0, trendDate: null });
 
   const snapshotDate = uploadDate || getJakartaDateKey();
-  const deduped = new Map();
+
+  // Dedup dalam 1 batch upload pakai computeTicketKey() (per Site ID untuk SiteDown,
+  // per Ticket ID untuk CellDown). Kalau ada >1 baris untuk identitas yang sama dalam 1
+  // file (mis. Site X sempat punya 2 Ticket ID SiteDown sekaligus karena "di-replace"
+  // sistem sumber), representative-nya dipilih yang PALING BARU terjadi
+  // (`lastOccurredOn` paling akhir) — supaya Ticket ID, Severity, Duration, dst yang
+  // tersimpan selalu mengikuti ticket yang AKTIF/BERLAKU sekarang, bukan yang lama.
+  // Semua Ticket ID yang pernah ketemu tetap dicatat di `mergedTicketIds` untuk histori.
+  //
+  // RC/RC Sub/PIC/Detail/Action Plan TETAP aman biarpun representative-nya ganti-ganti —
+  // itu diurus terpisah oleh `mergeArchiveValues` di bawah, yang selalu mempertahankan
+  // isian manual dari baris lama kalau baris baru datang dengan field itu kosong.
+  const dedupBuckets = new Map();
   for (const r of rows) {
     const ticketId = String(r.ticketId ?? '').trim();
     if (!ticketId) continue;
-    const key = toTicketKey(r.regional, ticketId);
-    const current = deduped.get(key);
-    if (!current || (r.lastOccurredOn && (!current.lastOccurredOn || new Date(r.lastOccurredOn) > new Date(current.lastOccurredOn)))) {
-      deduped.set(key, r);
+    const key = computeTicketKey(r);
+    let bucket = dedupBuckets.get(key);
+    if (!bucket) {
+      bucket = { row: r, mergedTicketIds: new Set([ticketId]) };
+      dedupBuckets.set(key, bucket);
+      continue;
+    }
+    bucket.mergedTicketIds.add(ticketId);
+    if (r.lastOccurredOn && (!bucket.row.lastOccurredOn || new Date(r.lastOccurredOn) > new Date(bucket.row.lastOccurredOn))) {
+      bucket.row = r;
     }
   }
 
-  const cleanRows = Array.from(deduped.values());
-  const incomingKeys = cleanRows.map((r) => toTicketKey(r.regional, r.ticketId));
+  const cleanRows = Array.from(dedupBuckets.values()).map(({ row, mergedTicketIds }) => ({
+    ...row,
+    mergedTicketIds: Array.from(mergedTicketIds),
+  }));
+  const incomingKeys = cleanRows.map((r) => computeTicketKey(r));
   const [archiveRows] = await pool.query('SELECT * FROM ticket_archive WHERE ticket_key IN (?)', [incomingKeys.length ? incomingKeys : ['__NONE__']]);
   const archiveMap = new Map(archiveRows.map((r) => [r.ticket_key, r]));
 
   const finalMap = new Map();
   for (const r of cleanRows) {
-    const key = toTicketKey(r.regional, r.ticketId);
+    const key = computeTicketKey(r);
     const merged = mergeArchiveValues(archiveMap.get(key), {
       ...r,
       ticket_key: key,
@@ -647,6 +705,11 @@ app.post('/api/swfm/merge', async (req, res) => {
     }
     // Purge otomatis: buang ticket aktif manapun (regional apapun) yang ticket_id-nya
     // sekarang ada di swfm_handled, walau ticket itu tidak diupload ulang hari ini.
+    // PENTING: hapus dari `ticket_archive` JUGA (bukan cuma `active_tickets`) — kalau
+    // tidak, baris "hantu" tertinggal di ticket_archive dan bisa salah ke-preserve
+    // (rc/rc_sub/pic/detail/action_plan dari ticket yang sudah closed) saat nanti ada
+    // ticket baru datang dengan ticket_key yang sama (mis. SiteDown di site yang sama).
+    await conn.query('DELETE FROM ticket_archive WHERE ticket_id IN (SELECT ticket_id FROM swfm_handled)');
     const [purgeResult] = await conn.query(
       'DELETE FROM active_tickets WHERE ticket_id IN (SELECT ticket_id FROM swfm_handled)'
     );
