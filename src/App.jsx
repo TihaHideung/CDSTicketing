@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard.jsx';
 import TicketPreviewTable from './components/TicketPreviewTable.jsx';
 import TicketDetailModal from './components/TicketDetailModal.jsx';
 import PasswordGateModal from './components/PasswordGateModal.jsx';
+import EasVswrPage from './features/eas-vswr/EasVswrPage.jsx';
 import FilterBar, { ALL_KEY, UNSET_KEY } from './components/FilterBar.jsx';
 import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
 import { cleanMergedRows, matchAgainstSwfm, dedupeSiteDownBySiteId, validateRegionalRows } from './lib/cleaning.js';
@@ -600,6 +601,9 @@ export default function App() {
           )}
         </div>
       );
+    }
+    if (active === 'eas-vswr') {
+      return <EasVswrPage />;
     }
     return null;
   }, [

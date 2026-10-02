@@ -74,6 +74,8 @@ di terminal lain (`npm run dev`), dan secara default sudah mengarah ke
 - **swfm_info** — RC Category referensi dari SWFM (bukan yang dipakai filter utama).
 - **daily_trend** — 1 baris per tanggal, isinya breakdown kumulatif per regional pada
   tanggal itu (kolom `data` bertipe JSON).
+- **eas_vswr_history** — riwayat summary EAS & VSWR Tracking, 1 baris per tanggal update
+  (kolom `data` bertipe JSON berisi record lengkap). Dibuat otomatis saat server start.
 - **site_master** — hasil import file Master Site Detail, dipakai untuk lookup Cluster
   & Site Name berdasarkan Site ID.
 
@@ -87,6 +89,8 @@ di terminal lain (`npm run dev`), dan secara default sudah mengarah ke
 | GET / POST | `/api/swfm/handled`, `/api/swfm/info` | Baca / gabung data SWFM kumulatif |
 | POST | `/api/swfm/merge` | Gabung hasil SWFM Check baru + auto-purge ticket yang sudah ditangani |
 | GET / POST | `/api/daily-trend` | Baca / tambah entry trend harian |
+| GET | `/api/eas-vswr/history` | Semua riwayat summary EAS & VSWR, urut tanggal naik |
+| PUT | `/api/eas-vswr/history/:dateISO` | Simpan/timpa summary EAS & VSWR untuk satu tanggal (`YYYY-MM-DD`) |
 | POST | `/api/site-master/import` | Import massal Master Site Detail |
 | POST | `/api/site-master/lookup` | Cari Cluster/Site Name untuk daftar Site ID |
 | GET | `/api/site-master/count` | Jumlah site tersimpan |

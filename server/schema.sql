@@ -158,3 +158,13 @@ CREATE TABLE IF NOT EXISTS site_master (
   site_class VARCHAR(50),
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+-- Riwayat summary EAS & VSWR Tracking: 1 baris per tanggal update. `data` berisi record
+-- lengkap (metrics, summaryText, raw EAS/VSWR, generatedAt). Generate ulang di tanggal
+-- yang sama menimpa baris tanggal itu.
+CREATE TABLE IF NOT EXISTS eas_vswr_history (
+  date_iso   DATE PRIMARY KEY,
+  data       JSON NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

@@ -4,6 +4,7 @@ const TITLES = {
   dashboard: 'Dashboard',
   upload: 'Upload Data',
   tickets: 'Detail Ticket Active',
+  'eas-vswr': 'EAS & VSWR Tracking',
 };
 
 export default function Topbar({ active, lastProcessedAt }) {

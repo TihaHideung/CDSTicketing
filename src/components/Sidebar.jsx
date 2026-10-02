@@ -1,10 +1,11 @@
 import React from 'react';
-import { LayoutDashboard, UploadCloud, ListChecks, Rocket } from 'lucide-react';
+import { LayoutDashboard, UploadCloud, ListChecks, Rocket, Activity } from 'lucide-react';
 
 const MENU = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { key: 'upload', label: 'Upload Data', Icon: UploadCloud },
   { key: 'tickets', label: 'Detail Ticket Active', Icon: ListChecks },
+  { key: 'eas-vswr', label: 'EAS & VSWR Tracking', Icon: Activity },
   { key: 'ekpi', label: 'eKPI Automation', Icon: Rocket, externalUrl: 'https://3e-sumatera.com/' },
 ];
 

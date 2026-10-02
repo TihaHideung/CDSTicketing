@@ -199,6 +199,20 @@ async function ensureSchema() {
     console.error('Gagal membuat ticket_archive_history:', err.message);
   }
 
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS eas_vswr_history (
+        date_iso   DATE PRIMARY KEY,
+        data       JSON NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB
+    `);
+    console.log('Migrasi: tabel `eas_vswr_history` siap dipakai untuk riwayat EAS & VSWR Tracking.');
+  } catch (err) {
+    console.error('Gagal membuat eas_vswr_history:', err.message);
+  }
+
 }
 ensureSchema();
 
@@ -764,6 +778,48 @@ app.post('/api/daily-trend', async (req, res) => {
       return { date: r.trend_date, ...payload };
     })
   );
+});
+
+// ---------- EAS & VSWR Tracking (riwayat summary per tanggal) ----------
+// 1 baris per tanggal update. Kolom `data` menyimpan satu record lengkap hasil generate
+// (metrics, summaryText, raw EAS/VSWR, generatedAt), persis yang dipakai frontend untuk
+// menampilkan summary, tabel progress, analytics perbandingan antar tanggal, dan export.
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseEasVswrRow(r) {
+  const payload = typeof r.data === 'string' ? JSON.parse(r.data) : r.data || {};
+  return { ...payload, dateISO: r.date_iso };
+}
+
+app.get('/api/eas-vswr/history', async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT date_iso, data FROM eas_vswr_history ORDER BY date_iso ASC');
+    res.json(rows.map(parseEasVswrRow));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/eas-vswr/history/:dateISO', async (req, res) => {
+  const { dateISO } = req.params;
+  if (!ISO_DATE_RE.test(dateISO)) {
+    return res.status(400).json({ error: 'Format tanggal harus YYYY-MM-DD.' });
+  }
+  const record = req.body;
+  if (!record || typeof record !== 'object' || !record.metrics || !record.summaryText) {
+    return res.status(400).json({ error: 'Data summary EAS & VSWR tidak valid.' });
+  }
+  try {
+    const toSave = { ...record, dateISO };
+    await pool.query(
+      'INSERT INTO eas_vswr_history (date_iso, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data=VALUES(data)',
+      [dateISO, JSON.stringify(toSave)]
+    );
+    res.json(toSave);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---------- Site Master ----------

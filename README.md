@@ -153,3 +153,14 @@ server/
   Regional" dipilih, kalau memang dibutuhkan.
 - Tambahkan riwayat perubahan (siapa mengedit apa, kapan) kalau dipakai banyak petugas.
 - Tambahkan autentikasi supaya jelas siapa yang mengedit ticket mana.
+
+## Fitur EAS & VSWR Tracking
+
+Menu **EAS & VSWR Tracking** di sidebar adalah fitur hasil penggabungan dari aplikasi EAS-VSWR yang dulu berdiri sendiri.
+
+- Kode ada di `src/features/eas-vswr/` (halaman, komponen, parser Excel, export). CSS-nya di-scope ke `.eas-vswr` supaya tidak bentrok dengan Tailwind.
+- Parsing Excel berjalan di browser, tetapi **riwayat summary per tanggal disimpan di database MySQL** (tabel `eas_vswr_history`, 1 baris per tanggal). Jadi memilih tanggal di kalender akan menampilkan data yang tersimpan, dari perangkat atau pengguna mana pun. Tabel dibuat otomatis saat server start (`ensureSchema` di `server/index.js`), definisinya juga ada di `server/schema.sql`.
+- Endpoint: `GET /api/eas-vswr/history` dan `PUT /api/eas-vswr/history/:dateISO`.
+- Kalau di browser masih ada riwayat lama di localStorage (key `eas-vswr-history-v1`), saat halaman dibuka datanya dipindahkan sekali ke database (tanggal yang sudah ada di database tidak ditimpa), lalu key itu dihapus.
+- **Analisa Peningkatan** (di bawah tabel progress) membandingkan tanggal yang sedang dibuka dengan tanggal tersimpan sebelumnya, dalam poin persentase (pp) dari % Closed: (1) peningkatan keseluruhan EAS Total, Quickwin, Extended, VSWR; (2) peningkatan per regional beserta baris TOTAL; (3) ranking NOP dengan peningkatan tertinggi dan terendah, bisa diganti metrik dan difilter per regional. Logikanya di `src/features/eas-vswr/lib/compare.js`.
+- Dependency tambahan: `html-to-image` (untuk tombol Download Gambar tabel progress).
