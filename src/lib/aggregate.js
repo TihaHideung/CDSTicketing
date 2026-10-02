@@ -350,26 +350,27 @@ function formatShortDate(d) {
 }
 
 /**
- * Info minggu ISO (Senin sebagai awal minggu, minggu pertama tahun = minggu yang
- * memuat hari Kamis pertama) — dipakai supaya penomoran minggu konsisten dengan
- * kalender pada umumnya, bukan sekadar "hari ke-N dibagi 7".
+ * Info minggu Weekly: 1 minggu = JUMAT s/d KAMIS (bukan Senin-Minggu).
+ * Untuk sebuah tanggal, cari hari Jumat terakhir (termasuk hari itu sendiri bila Jumat)
+ * sebagai awal minggu, lalu akhir minggunya = Kamis berikutnya (awal + 6 hari).
+ * Key pengelompokan memakai tanggal Jumat awal minggu (YYYY-MM-DD) sehingga unik dan
+ * otomatis terurut kronologis, termasuk saat minggu melintasi pergantian bulan/tahun.
  */
-function isoWeekInfo(date) {
-  const day = (date.getDay() + 6) % 7; // Senin=0 ... Minggu=6
-  const monday = new Date(date);
-  monday.setDate(date.getDate() - day);
-  monday.setHours(0, 0, 0, 0);
+const WEEK_START_DAY = 5; // 0=Minggu, 1=Senin, ... 5=Jumat, 6=Sabtu
 
-  const thursday = new Date(monday);
-  thursday.setDate(monday.getDate() + 3);
-  const isoYear = thursday.getFullYear();
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
 
-  const firstThursday = new Date(isoYear, 0, 1);
-  const firstThursdayOffset = (firstThursday.getDay() + 6) % 7;
-  firstThursday.setDate(firstThursday.getDate() - firstThursdayOffset + 3);
+function toDateKey(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
 
-  const weekNumber = 1 + Math.round((thursday - firstThursday) / (7 * 24 * 60 * 60 * 1000));
-  return { isoYear, weekNumber, monday };
+function fridayWeekInfo(date) {
+  const offset = (date.getDay() - WEEK_START_DAY + 7) % 7; // Jumat=0, Sabtu=1, ... Kamis=6
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate() - offset);
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+  return { start, end };
 }
 
 /**
@@ -381,12 +382,10 @@ function getPeriodBucket(dateKey, period) {
   if (Number.isNaN(d.getTime())) return { key: dateKey, label: dateKey };
 
   if (period === 'weekly') {
-    const { isoYear, weekNumber, monday } = isoWeekInfo(d);
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
+    const { start, end } = fridayWeekInfo(d);
     return {
-      key: `${isoYear}-W${String(weekNumber).padStart(2, '0')}`,
-      label: `${formatShortDate(monday)} - ${formatShortDate(sunday)}`,
+      key: toDateKey(start),
+      label: `${formatShortDate(start)} - ${formatShortDate(end)}`,
     };
   }
   if (period === 'monthly') {

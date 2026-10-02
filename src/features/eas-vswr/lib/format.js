@@ -47,7 +47,7 @@ export function timestampToWIB(isoTimestamp) {
   return `${hh}.${mm} WIB`
 }
 
-// Selisih dalam poin persentase, mis. "+2,35 pp".
+
 export function idPP(n, digits = 2) {
-  return `${idSigned(n, digits)} pp`
+  return `${idSigned(n, digits)} %`
 }
