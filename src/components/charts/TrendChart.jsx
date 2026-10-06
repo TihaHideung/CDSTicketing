@@ -10,7 +10,7 @@ function totalLabel(props) {
   if (!value) return null;
   return (
     <text x={x} y={y - 10} textAnchor="middle" fontSize={11} fontWeight={700} fill="#0f172a">
-      {value}
+      {Number(value).toLocaleString('id-ID', { maximumFractionDigits: 1 })}
     </text>
   );
 }
@@ -20,9 +20,13 @@ function barLabel(props) {
   if (!value) return null;
   return (
     <text x={x + width / 2} y={y - 4} textAnchor="middle" fontSize={10} fontWeight={600} fill="#334155">
-      {value}
+      {Number(value).toLocaleString('id-ID', { maximumFractionDigits: 1 })}
     </text>
   );
+}
+
+function formatTrendValue(value) {
+  return Number(value || 0).toLocaleString('id-ID', { maximumFractionDigits: 1 });
 }
 
 function PeriodSelector({ period, onChange }) {
@@ -100,14 +104,14 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
           {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
         </div>
         {period !== 'daily' && (
-          <p className="text-[11px] text-slate-400 mb-1">Nilai menunjukkan total akumulasi seluruh hari dalam periode ini.</p>
+          <p className="text-[11px] text-slate-400 mb-1">Nilai menunjukkan rata-rata ticket aktif per hari dari snapshot yang tersedia dalam periode ini.</p>
         )}
         <ResponsiveContainer width="100%" height={280}>
           <ComposedChart data={lineData} margin={{ top: 24 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="date" />
             <YAxis />
-            <Tooltip />
+            <Tooltip formatter={(value) => formatTrendValue(value)} />
             <Legend />
             {regions.map((reg) => (
               <Bar key={reg} dataKey={reg} name={reg} fill={REGION_COLORS[reg] || '#94a3b8'} isAnimationActive={animate}>
@@ -142,14 +146,14 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
         {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
       </div>
       {period !== 'daily' && (
-        <p className="text-[11px] text-slate-400 mb-1">Nilai menunjukkan total akumulasi seluruh hari dalam periode ini.</p>
+        <p className="text-[11px] text-slate-400 mb-1">Nilai menunjukkan rata-rata ticket aktif per hari dari snapshot yang tersedia dalam periode ini.</p>
       )}
       <ResponsiveContainer width="100%" height={280}>
         <ComposedChart data={data} margin={{ top: 24 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="date" />
           <YAxis />
-          <Tooltip />
+          <Tooltip formatter={(value) => formatTrendValue(value)} />
           <Legend />
           <Bar dataKey="cellDown" name="CellDown" fill="#e0301e" stackId="a" isAnimationActive={animate} />
           <Bar dataKey="siteDown" name="SiteDown" fill="#0ea5e9" stackId="a" isAnimationActive={animate} />
@@ -159,10 +163,10 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
         </ComposedChart>
       </ResponsiveContainer>
       <p className="text-xs text-slate-600 mt-2">
-        {last.date}: <strong>{last.total}</strong> ticket
+        {last.date}: <strong>{formatTrendValue(last.total)}</strong> ticket rata-rata per hari
         {prev ? (
           <>
-            , {delta >= 0 ? 'naik' : 'turun'} <strong>{Math.abs(delta)}</strong> ticket dibanding {prev.date} ({prev.total}).
+            , {delta >= 0 ? 'naik' : 'turun'} <strong>{formatTrendValue(Math.abs(delta))}</strong> dibanding {prev.date} ({formatTrendValue(prev.total)}).
           </>
         ) : (
           '.'

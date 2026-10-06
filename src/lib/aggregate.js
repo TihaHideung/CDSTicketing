@@ -329,9 +329,8 @@ export function buildFilteredDailyTrendByRegion(dailyTrendLog, regions, criteria
 // PENTING: Trend Harian itu snapshot jumlah ticket AKTIF pada hari itu (backlog), bukan
 // "ticket baru per hari" — satu ticket yang aktif berhari-hari akan muncul di banyak
 // snapshot harian. Untuk periode Weekly/Monthly/Quarter/Annual, angkanya dihitung
-// sebagai TOTAL penjumlahan seluruh hari dalam periode itu (sesuai permintaan) —
-// artinya ini akumulasi snapshot harian, BUKAN jumlah ticket unik dalam periode itu;
-// ticket yang aktif berhari-hari akan ikut kehitung di tiap hari itu.
+// sebagai rata-rata snapshot pada hari yang memiliki data dalam periode tersebut;
+// hasilnya tetap backlog rata-rata harian, bukan jumlah tiket unik.
 
 export const TREND_PERIODS = [
   { key: 'daily', label: 'Daily' },
@@ -408,12 +407,8 @@ function getPeriodBucket(dateKey, period) {
 
 /**
  * Kelompokkan hasil `buildFilteredDailyTrend` (array {date, cellDown, siteDown, total})
- * ke periode Weekly/Monthly/Quarter/Annual, dengan nilai = TOTAL penjumlahan seluruh
- * hari dalam periode itu. Untuk period 'daily', data dikembalikan apa adanya.
- *
- * Catatan: karena data sumbernya snapshot ticket AKTIF per hari (bukan "ticket baru per
- * hari"), 1 ticket yang aktif berhari-hari ikut terhitung di tiap hari itu — jadi angka
- * Weekly/Monthly/dst ini akumulasi snapshot harian, bukan jumlah ticket unik.
+ * ke periode Weekly/Monthly/Quarter/Annual, dengan nilai = rata-rata snapshot harian
+ * yang tersedia dalam periode itu. Untuk period 'daily', data dikembalikan apa adanya.
  */
 export function aggregateTrendByPeriod(dailyData, period) {
   if (!Array.isArray(dailyData) || !dailyData.length || period === 'daily') return dailyData || [];
@@ -423,22 +418,28 @@ export function aggregateTrendByPeriod(dailyData, period) {
     const { key, label } = getPeriodBucket(row.date, period);
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = { key, label, cellDown: 0, siteDown: 0, total: 0 };
+      bucket = { key, label, cellDown: 0, siteDown: 0, total: 0, days: 0 };
       buckets.set(key, bucket);
     }
     bucket.cellDown += Number(row.cellDown) || 0;
     bucket.siteDown += Number(row.siteDown) || 0;
     bucket.total += Number(row.total) || 0;
+    bucket.days++;
   }
 
   return Array.from(buckets.values())
     .sort((a, b) => (a.key > b.key ? 1 : -1))
-    .map((b) => ({ date: b.label, cellDown: b.cellDown, siteDown: b.siteDown, total: b.total }));
+    .map((b) => ({
+      date: b.label,
+      cellDown: Math.ceil(b.cellDown / b.days),
+      siteDown: Math.ceil(b.siteDown / b.days),
+      total: Math.ceil(b.total / b.days),
+    }));
 }
 
 /**
  * Sama seperti `aggregateTrendByPeriod`, tapi untuk hasil `buildFilteredDailyTrendByRegion`
- * (array {date, [namaRegional]: jumlah, ...}) — nilai per regional juga TOTAL penjumlahan.
+ * (array {date, [namaRegional]: jumlah, ...}) — nilai per regional juga rata-rata harian.
  */
 export function aggregateTrendByRegionByPeriod(dailyData, regions, period) {
   if (!Array.isArray(dailyData) || !dailyData.length || period === 'daily') return dailyData || [];
@@ -448,18 +449,19 @@ export function aggregateTrendByRegionByPeriod(dailyData, regions, period) {
     const { key, label } = getPeriodBucket(row.date, period);
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = { key, label, sums: {} };
+      bucket = { key, label, sums: {}, days: 0 };
       for (const reg of regions) bucket.sums[reg] = 0;
       buckets.set(key, bucket);
     }
     for (const reg of regions) bucket.sums[reg] += Number(row[reg]) || 0;
+    bucket.days++;
   }
 
   return Array.from(buckets.values())
     .sort((a, b) => (a.key > b.key ? 1 : -1))
     .map((b) => {
       const point = { date: b.label };
-      for (const reg of regions) point[reg] = b.sums[reg];
+      for (const reg of regions) point[reg] = Math.ceil(b.sums[reg] / b.days);
       return point;
     });
 }

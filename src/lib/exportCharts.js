@@ -44,14 +44,14 @@ export async function exportChartsAsPdf(element, fileName) {
  * tidak ada grafik yang terpotong di pergantian halaman). Blok `full: true` memakai lebar
  * penuh halaman; sisanya dijejerkan 2 per baris.
  *
- * blocks: [{ element: HTMLElement, full?: boolean }]
+ * blocks: [{ element: HTMLElement, full?: boolean, analytics?: string[] }]
  */
 export async function exportElementsAsPdf(blocks, { fileName, title, subtitle } = {}) {
   const items = [];
   for (const b of blocks) {
     if (!b?.element) continue;
     const canvas = await html2canvas(b.element, { backgroundColor: '#ffffff', scale: 2, useCORS: true });
-    items.push({ canvas, full: Boolean(b.full) });
+    items.push({ canvas, full: Boolean(b.full), analytics: b.analytics || [] });
   }
   if (!items.length) throw new Error('Tidak ada grafik yang bisa diekspor. Coba tutup pop up lalu ulangi.');
 
@@ -86,14 +86,43 @@ export async function exportElementsAsPdf(blocks, { fileName, title, subtitle } 
     }
   };
 
+  const analysisLines = (insights, width) => {
+    if (!insights?.length) return [];
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8);
+    return insights.map((insight) => pdf.splitTextToSize(`- ${insight}`, width - 2));
+  };
+  const analysisHeight = (insights, width) => {
+    const lines = analysisLines(insights, width);
+    return lines.length ? 7 + lines.reduce((height, item) => height + item.length * 3.8 + 1.5, 0) : 0;
+  };
+  const drawAnalysis = (insights, x, top, width) => {
+    if (!insights?.length) return;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(8);
+    pdf.setTextColor(15, 23, 42);
+    pdf.text('Analisis', x, top + 3);
+    let textY = top + 7;
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8);
+    pdf.setTextColor(51, 65, 85);
+    for (const lines of analysisLines(insights, width)) {
+      pdf.text(lines, x + 1, textY);
+      textY += lines.length * 3.8 + 1.5;
+    }
+  };
+
   let row = [];
   const flushRow = () => {
     if (!row.length) return;
     const heights = row.map((it) => (it.canvas.height * HALF) / it.canvas.width);
-    const rowH = Math.max(...heights);
+    const analysisHeights = row.map((it) => analysisHeight(it.analytics, HALF));
+    const rowH = Math.max(...heights.map((height, index) => height + (analysisHeights[index] ? GAP + analysisHeights[index] : 0)));
     ensureSpace(rowH);
     row.forEach((it, i) => {
-      pdf.addImage(it.canvas.toDataURL('image/png'), 'PNG', M + i * (HALF + GAP), y, HALF, heights[i]);
+      const x = M + i * (HALF + GAP);
+      pdf.addImage(it.canvas.toDataURL('image/png'), 'PNG', x, y, HALF, heights[i]);
+      if (analysisHeights[i]) drawAnalysis(it.analytics, x, y + heights[i] + GAP, HALF);
     });
     y += rowH + GAP;
     row = [];
@@ -104,14 +133,21 @@ export async function exportElementsAsPdf(blocks, { fileName, title, subtitle } 
       flushRow();
       let w = CW;
       let h = (it.canvas.height * w) / it.canvas.width;
-      const maxH = PH - 2 * M;
+      const analysisH = analysisHeight(it.analytics, CW);
+      const maxH = PH - 2 * M - (analysisH ? GAP + analysisH : 0);
       if (h > maxH) {
         h = maxH;
         w = (it.canvas.width * h) / it.canvas.height;
       }
-      ensureSpace(h);
+      ensureSpace(h + (analysisH ? GAP + analysisH : 0));
       pdf.addImage(it.canvas.toDataURL('image/png'), 'PNG', M + (CW - w) / 2, y, w, h);
-      y += h + GAP;
+      y += h;
+      if (analysisH) {
+        y += GAP;
+        drawAnalysis(it.analytics, M, y, CW);
+        y += analysisH;
+      }
+      y += GAP;
     } else {
       row.push(it);
       if (row.length === 2) flushRow();
