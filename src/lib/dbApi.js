@@ -91,17 +91,6 @@ export async function saveEasVswrRecord(record) {
   });
 }
 
-export async function getEasVswrHistory() {
-  return apiFetch('/api/eas-vswr/history');
-}
-
-export async function saveEasVswrRecord(record) {
-  return apiFetch(`/api/eas-vswr/history/${encodeURIComponent(record.dateISO)}`, {
-    method: 'PUT',
-    body: JSON.stringify(record),
-  });
-}
-
 export async function replaceNoim(rows) {
   return apiFetch('/api/noim/replace', { method: 'POST', body: JSON.stringify({ rows }) });
 }
