@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { REGIONS, RC_CATEGORIES, RC_UNDER_REVIEW, DURATION_BUCKETS, getSubcategoriesFor } from '../lib/constants.js';
+import { REGIONS, RC_CATEGORIES, RC_UNDER_REVIEW, DURATION_BUCKETS, getSubcategoriesFor, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH } from '../lib/constants.js';
 
 export const ALL_KEY = 'ALL';
 export const UNSET_KEY = 'UNSET'; // representasi "(Belum diisi)" untuk filter RC
@@ -96,6 +96,9 @@ export default function FilterBar({
   clusterOptions,
   categoryFilter,
   onCategoryChange,
+  sourceFilter = SOURCE_INAP,
+  onSourceChange,
+  sourceEnabled = false,
   durationFilter,
   onDurationChange,
   rcFilter,
@@ -106,6 +109,7 @@ export default function FilterBar({
   onDateFromChange,
   dateTo,
   onDateToChange,
+  onReset,
   showDateFilter = true,
 }) {
   const rcSubOptions = useMemo(() => {
@@ -136,6 +140,26 @@ export default function FilterBar({
             onChange={onCategoryChange}
             allLabel="Semua Tipe"
           />
+        </div>
+        <div className="md:col-span-2">
+          <div className="min-w-0">
+            <label
+              className={`mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] ${sourceEnabled ? 'text-slate-500' : 'text-slate-400'}`}
+            >
+              Sumber Data
+            </label>
+            <select
+              value={sourceEnabled ? sourceFilter : SOURCE_INAP}
+              onChange={(e) => onSourceChange?.(e.target.value)}
+              disabled={!sourceEnabled}
+              title={sourceEnabled ? 'Pilih sumber data Site Down' : 'Pilih Tipe = Site Down dulu untuk mengaktifkan filter ini'}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700 shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:border-slate-400 disabled:bg-slate-400 disabled:text-slate-600"
+            >
+              <option value={SOURCE_INAP}>INAP</option>
+              <option value={SOURCE_NOIM}>NOIM</option>
+              <option value={SOURCE_BOTH}>ALL (irisan INAP &amp; NOIM)</option>
+            </select>
+          </div>
         </div>
         <div className="md:col-span-2">
           <MultiSelect
@@ -187,6 +211,18 @@ export default function FilterBar({
               />
             </div>
           </>
+        )}
+        {onReset && (
+          <div className="flex items-end md:col-span-2">
+            <button
+              type="button"
+              onClick={onReset}
+              title="Kembalikan semua filter ke default"
+              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-100 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+            >
+              Reset Filter
+            </button>
+          </div>
         )}
       </div>
     </div>

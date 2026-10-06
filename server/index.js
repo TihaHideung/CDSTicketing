@@ -213,6 +213,50 @@ async function ensureSchema() {
     console.error('Gagal membuat eas_vswr_history:', err.message);
   }
 
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS eas_vswr_history (
+        date_iso   DATE PRIMARY KEY,
+        data       JSON NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB
+    `);
+    console.log('Migrasi: tabel `eas_vswr_history` siap dipakai untuk riwayat EAS & VSWR Tracking.');
+  } catch (err) {
+    console.error('Gagal membuat eas_vswr_history:', err.message);
+  }
+
+  try {
+    await pool.query(`
+CREATE TABLE IF NOT EXISTS noim_sites (
+  site_id              VARCHAR(100) PRIMARY KEY,
+  regional             VARCHAR(50),
+  rc_tier2             VARCHAR(150),
+  rc_category          VARCHAR(150),
+  start_time           DATETIME,
+  responsible_party    VARCHAR(150),
+  nossa                VARCHAR(255),
+  bc_time              DATETIME,
+  duration             VARCHAR(50),
+  ticket               VARCHAR(100),
+  rc_tier1             VARCHAR(150),
+  nop                  VARCHAR(150),
+  rc_category_validasi VARCHAR(150),
+  validasi_rc          TEXT,
+  remark               TEXT,
+  cat_tif              VARCHAR(100),
+  uploaded_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_noim_regional (regional),
+  INDEX idx_noim_nop (nop),
+  INDEX idx_noim_ticket (ticket)
+) ENGINE=InnoDB
+    `);
+    console.log('Migrasi: tabel `noim_sites` siap dipakai untuk data pembanding NOIM.');
+  } catch (err) {
+    console.error('Gagal membuat noim_sites:', err.message);
+  }
+
 }
 ensureSchema();
 
@@ -865,6 +909,108 @@ app.post('/api/site-master/lookup', async (req, res) => {
 app.get('/api/site-master/count', async (_req, res) => {
   const [rows] = await pool.query('SELECT COUNT(*) as c FROM site_master');
   res.json({ count: rows[0].c });
+});
+
+// ---------- NOIM (pembanding data Site Down INAP) ----------
+// Snapshot site down versi NOIM. Upload baru MENGGANTI seluruh isi tabel (bukan kumulatif).
+
+function cleanText(v) {
+  if (v == null) return null;
+  const t = String(v).trim();
+  return t === '' ? null : t;
+}
+
+app.post('/api/noim/replace', async (req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'Tidak ada baris NOIM untuk disimpan.' });
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM noim_sites');
+    const chunkSize = 300;
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const values = chunk.map((r) => [
+        cleanText(r.siteId),
+        cleanText(r.regional),
+        cleanText(r.rcTier2),
+        cleanText(r.rcCategory),
+        r.startTime || null,
+        cleanText(r.responsibleParty),
+        cleanText(r.nossa),
+        r.bcTime || null,
+        cleanText(r.duration),
+        cleanText(r.ticket),
+        cleanText(r.rcTier1),
+        cleanText(r.nop),
+        cleanText(r.rcCategoryValidasi),
+        cleanText(r.validasiRc),
+        cleanText(r.remark),
+        cleanText(r.catTif),
+      ]);
+      await conn.query(
+        `INSERT INTO noim_sites
+          (site_id, regional, rc_tier2, rc_category, start_time, responsible_party, nossa, bc_time,
+           duration, ticket, rc_tier1, nop, rc_category_validasi, validasi_rc, remark, cat_tif)
+         VALUES ?
+         ON DUPLICATE KEY UPDATE regional=VALUES(regional), rc_tier2=VALUES(rc_tier2),
+           rc_category=VALUES(rc_category), start_time=VALUES(start_time),
+           responsible_party=VALUES(responsible_party), nossa=VALUES(nossa), bc_time=VALUES(bc_time),
+           duration=VALUES(duration), ticket=VALUES(ticket), rc_tier1=VALUES(rc_tier1), nop=VALUES(nop),
+           rc_category_validasi=VALUES(rc_category_validasi), validasi_rc=VALUES(validasi_rc),
+           remark=VALUES(remark), cat_tif=VALUES(cat_tif)`,
+        [values]
+      );
+    }
+    await conn.commit();
+    const [cnt] = await pool.query('SELECT COUNT(*) AS c FROM noim_sites');
+    res.json({ imported: cnt[0].c });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// Semua data NOIM + info Cluster/Site Name/Site Class dari site_master (kalau site-nya ada
+// di master), supaya filter Cluster & chart Site Class di dashboard ikut jalan untuk NOIM.
+app.get('/api/noim', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT n.*, m.site_name AS m_site_name, m.cluster AS m_cluster, m.site_class AS m_site_class,
+              m.nop AS m_nop
+         FROM noim_sites n
+         LEFT JOIN site_master m ON m.site_id = n.site_id`
+    );
+    res.json(
+      rows.map((r) => ({
+        siteId: r.site_id,
+        regional: r.regional,
+        rcTier2: r.rc_tier2,
+        rcCategory: r.rc_category,
+        startTime: r.start_time,
+        responsibleParty: r.responsible_party,
+        nossa: r.nossa,
+        bcTime: r.bc_time,
+        duration: r.duration,
+        ticket: r.ticket,
+        rcTier1: r.rc_tier1,
+        nop: r.nop || r.m_nop,
+        rcCategoryValidasi: r.rc_category_validasi,
+        validasiRc: r.validasi_rc,
+        remark: r.remark,
+        catTif: r.cat_tif,
+        siteName: r.m_site_name,
+        cluster: r.m_cluster,
+        siteClass: r.m_site_class,
+      }))
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

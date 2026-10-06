@@ -56,6 +56,14 @@ export default function UploadPanel({
   onImportMaster,
   masterImporting,
   masterCount,
+  noimFile,
+  onNoimFileChange,
+  onUploadNoim,
+  noimUploading,
+  noimCount,
+  noimBcTime,
+  noimMessage,
+  noimError,
 }) {
   const readyCount = [mergeFile].filter(Boolean).length;
 
@@ -102,6 +110,43 @@ export default function UploadPanel({
             <span className="text-sm text-navy-700 animate-pulse">{progressMessage}</span>
           )}
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <h2 className="font-semibold text-slate-800 mb-1">Data NOIM</h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Data Site Down versi NOIM, dipakai sebagai pembanding hasil validasi INAP &amp; SWFM di Dashboard.
+          Setiap upload baru <span className="font-medium">menggantikan</span> seluruh data NOIM sebelumnya.
+        </p>
+        <div className="flex items-center gap-4 flex-wrap">
+          <FileSlot
+            label="Data NOIM (Excel/CSV)"
+            hint="Kolom wajib: Site ID, Start Time, Duration (+ Regional, NOP, Ticket, RC Category Validasi, dst). Dapat berupa .xlsx, .xls, atau .csv"
+            file={noimFile}
+            onChange={onNoimFileChange}
+          />
+          <button
+            disabled={!noimFile || noimUploading}
+            onClick={onUploadNoim}
+            className="px-4 py-2 rounded-md bg-navy-900 text-white text-sm font-medium disabled:opacity-40"
+          >
+            {noimUploading ? 'Menyimpan...' : 'Simpan ke Database'}
+          </button>
+          {noimCount != null && noimCount > 0 && (
+            <span className="text-xs text-slate-500">
+              {noimCount.toLocaleString('id-ID')} site NOIM tersimpan
+              {noimBcTime ? ` (BC Time ${new Date(noimBcTime).toLocaleString('id-ID')})` : ''}
+            </span>
+          )}
+        </div>
+        {noimError && (
+          <div className="mt-4 text-sm bg-red-50 text-red-700 border border-red-200 rounded-md px-4 py-3">{noimError}</div>
+        )}
+        {noimMessage && (
+          <div className="mt-4 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md px-4 py-3">
+            {noimMessage}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-6">

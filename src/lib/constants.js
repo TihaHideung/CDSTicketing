@@ -201,3 +201,24 @@ export function parseTicketKey(key) {
   const idx = key.indexOf('::');
   return { regional: key.slice(0, idx), ticketId: key.slice(idx + 2) };
 }
+
+// ---------- NOIM (pembanding Site Down) ----------
+export const NOIM_REQUIRED_HEADERS = ['Site ID', 'Start Time', 'Duration'];
+
+// Pilihan filter "Sumber Data" di Dashboard (hanya aktif kalau Tipe = Site Down).
+export const SOURCE_INAP = 'INAP';
+export const SOURCE_NOIM = 'NOIM';
+export const SOURCE_BOTH = 'ALL';
+
+// Bucket Duration NOIM -> bucket Duration yang dipakai dashboard (DURATION_BUCKETS).
+export const NOIM_DURATION_MAP = {
+  'down < 12h': '<12H',
+  '12h < down < 24h': '12H-24H',
+  '1d < down < 3d': '1-3 Days',
+  '3d < down < 7d': '3-7 Days',
+  'down > 7d': '>7 Days',
+};
+
+// Default filter Dashboard (dipakai saat pertama dibuka & tombol "Reset Filter").
+export const DEFAULT_DURATION_FILTER = ['1-3 Days', '3-7 Days', '>7 Days'];
+export const DEFAULT_SOURCE_FILTER = SOURCE_BOTH;

@@ -8,12 +8,13 @@ import TicketDetailModal from './components/TicketDetailModal.jsx';
 import PasswordGateModal from './components/PasswordGateModal.jsx';
 import EasVswrPage from './features/eas-vswr/EasVswrPage.jsx';
 import FilterBar, { ALL_KEY, UNSET_KEY } from './components/FilterBar.jsx';
-import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
+import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readNoimFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
 import { cleanMergedRows, matchAgainstSwfm, dedupeSiteDownBySiteId, validateRegionalRows } from './lib/cleaning.js';
 import { buildSwfmMaps } from './lib/swfmCheck.js';
 import { computeSummary, buildFilteredDailyTrend, buildFilteredDailyTrendByRegion, groupBySiteId } from './lib/aggregate.js';
 import { exportWorkbook } from './lib/exportExcel.js';
-import { REGIONS, MASTER_COLUMNS, matchesRegionalTag, RC_CATEGORIES, RC_STRUCTURE, PIC_OPTIONS, getSubcategoriesFor } from './lib/constants.js';
+import { REGIONS, MASTER_COLUMNS, matchesRegionalTag, RC_CATEGORIES, RC_STRUCTURE, PIC_OPTIONS, getSubcategoriesFor, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, DEFAULT_DURATION_FILTER, DEFAULT_SOURCE_FILTER } from './lib/constants.js';
+import { noimToViewRows, buildNoimSiteSet, normalizeSiteId, computeSourceStats } from './lib/noim.js';
 import {
   getActiveTickets,
   upsertActiveTickets,
@@ -26,6 +27,8 @@ import {
   importSiteMaster,
   lookupSiteMaster,
   getSiteMasterCount,
+  replaceNoim,
+  getNoim,
 } from './lib/dbApi.js';
 
 // Halaman "Upload Data" dikunci password. Status "sudah buka password" disimpan di
@@ -95,13 +98,19 @@ export default function App() {
   const [lastProcessedAt, setLastProcessedAt] = useState('');
   const [masterImporting, setMasterImporting] = useState(false);
   const [masterCount, setMasterCount] = useState(null);
+  const [noimFile, setNoimFile] = useState(null);
+  const [noimUploading, setNoimUploading] = useState(false);
+  const [noimMessage, setNoimMessage] = useState('');
+  const [noimError, setNoimError] = useState('');
+  const [noimRows, setNoimRows] = useState([]);
 
   const [allRows, setAllRows] = useState([]);
   const [regionalFilter, setRegionalFilter] = useState(ALL_KEY);
   const [nopFilter, setNopFilter] = useState(ALL_KEY);
   const [clusterFilter, setClusterFilter] = useState(ALL_KEY);
   const [categoryFilter, setCategoryFilter] = useState(ALL_KEY);
-  const [durationFilter, setDurationFilter] = useState([]); // array: bisa pilih beberapa Duration sekaligus
+  const [sourceFilter, setSourceFilter] = useState(DEFAULT_SOURCE_FILTER); // INAP | NOIM | ALL (hanya berlaku kalau Tipe = Site Down)
+  const [durationFilter, setDurationFilter] = useState(() => [...DEFAULT_DURATION_FILTER]); // array: bisa pilih beberapa Duration sekaligus
   const [rcFilter, setRcFilter] = useState(ALL_KEY);
   const [rcSubFilter, setRcSubFilter] = useState(ALL_KEY);
   const [dailyTrendLog, setDailyTrendLog] = useState([]);
@@ -116,10 +125,18 @@ export default function App() {
 
   const refreshAll = useCallback(async () => {
     try {
-      const [tickets, log, count] = await Promise.all([getActiveTickets(), getDailyTrendLog(), getSiteMasterCount()]);
+      // Data NOIM dimuat terpisah & tidak boleh bikin seluruh refresh gagal kalau
+      // endpoint-nya belum tersedia (mis. backend lama belum di-deploy ulang).
+      const [tickets, log, count, noim] = await Promise.all([
+        getActiveTickets(),
+        getDailyTrendLog(),
+        getSiteMasterCount(),
+        getNoim().catch(() => []),
+      ]);
       setAllRows(tickets);
       setDailyTrendLog(log);
       setMasterCount(count.count);
+      setNoimRows(Array.isArray(noim) ? noim : []);
       setLoadError('');
     } catch (err) {
       setLoadError(err.message || String(err));
@@ -130,13 +147,30 @@ export default function App() {
     refreshAll();
   }, [refreshAll]);
 
+  // Filter "Sumber Data" cuma berlaku kalau Tipe = Site Down. Di luar itu selalu INAP.
+  const sourceEnabled = categoryFilter === 'SiteDown';
+  const effectiveSource = sourceEnabled ? sourceFilter : SOURCE_INAP;
+
+  const noimSiteSet = useMemo(() => buildNoimSiteSet(noimRows), [noimRows]);
+  const noimViewRows = useMemo(() => noimToViewRows(noimRows), [noimRows]);
+  const sourceStats = useMemo(() => computeSourceStats(allRows, noimRows), [allRows, noimRows]);
+
   const regionRows = useMemo(() => {
+    const base = effectiveSource === SOURCE_NOIM ? noimViewRows : allRows;
     const rows =
       regionalFilter === ALL_KEY
-        ? allRows
-        : allRows.filter((r) => matchesRegionalTag(r.regional, regionalFilter) || matchesRegionalTag(r.regionalCode, regionalFilter));
-    return dedupeSiteDownBySiteId(rows);
-  }, [allRows, regionalFilter]);
+        ? base
+        : base.filter((r) => matchesRegionalTag(r.regional, regionalFilter) || matchesRegionalTag(r.regionalCode, regionalFilter));
+    // NOIM: 1 baris = 1 Site ID, tidak perlu dedupe.
+    if (effectiveSource === SOURCE_NOIM) return rows;
+
+    const deduped = dedupeSiteDownBySiteId(rows);
+    // ALL: hanya Site Down yang Site ID-nya ada di INAP DAN NOIM (data yang tampil tetap data INAP).
+    if (effectiveSource === SOURCE_BOTH) {
+      return deduped.filter((r) => r.catAlarm === 'SiteDown' && noimSiteSet.has(normalizeSiteId(r.siteId)));
+    }
+    return deduped;
+  }, [allRows, noimViewRows, noimSiteSet, effectiveSource, regionalFilter]);
 
   const nopOptions = useMemo(() => Array.from(new Set(regionRows.map((r) => r.nop).filter(Boolean))).sort(), [regionRows]);
   const clusterOptions = useMemo(() => {
@@ -208,6 +242,26 @@ export default function App() {
     setRegionalFilter(val);
     setNopFilter(ALL_KEY);
     setClusterFilter(ALL_KEY);
+  }, []);
+
+  const handleCategoryChange = useCallback((val) => {
+    setCategoryFilter(val);
+    // Filter Sumber Data tertutup lagi kalau Tipe bukan Site Down -> kembalikan ke INAP.
+    if (val !== 'SiteDown') setSourceFilter(DEFAULT_SOURCE_FILTER);
+  }, []);
+
+  // Kembalikan SEMUA filter (Dashboard & Detail Ticket) ke nilai default.
+  const handleResetFilters = useCallback(() => {
+    setRegionalFilter(ALL_KEY);
+    setNopFilter(ALL_KEY);
+    setClusterFilter(ALL_KEY);
+    setCategoryFilter(ALL_KEY);
+    setSourceFilter(DEFAULT_SOURCE_FILTER);
+    setDurationFilter([...DEFAULT_DURATION_FILTER]);
+    setRcFilter(ALL_KEY);
+    setRcSubFilter(ALL_KEY);
+    setDateFrom('');
+    setDateTo('');
   }, []);
 
   const handleNopChange = useCallback((val) => {
@@ -288,6 +342,32 @@ export default function App() {
     }
   }
 
+  const handleUploadNoim = useCallback(async () => {
+    if (!noimFile) return;
+    setNoimUploading(true);
+    setNoimError('');
+    setNoimMessage('');
+    try {
+      const { rows, skippedNoSiteId, duplicates } = await readNoimFile(noimFile);
+      if (!rows.length) {
+        throw new Error('Tidak ada baris dengan Site ID di file NOIM ini, tidak ada yang disimpan.');
+      }
+      const result = await replaceNoim(rows);
+      await refreshAll();
+      setNoimFile(null);
+      const notes = [];
+      if (skippedNoSiteId) notes.push(`${skippedNoSiteId} baris tanpa Site ID dilewati`);
+      if (duplicates) notes.push(`${duplicates} Site ID dobel digabung`);
+      setNoimMessage(
+        `Data NOIM tersimpan: ${result.imported.toLocaleString('id-ID')} site.${notes.length ? ` (${notes.join(', ')})` : ''}`
+      );
+    } catch (err) {
+      setNoimError(err.message || String(err));
+    } finally {
+      setNoimUploading(false);
+    }
+  }, [noimFile, refreshAll]);
+
   const handleProcess = useCallback(async () => {
     setError('');
     setProcessing(true);
@@ -354,7 +434,8 @@ export default function App() {
       setNopFilter(ALL_KEY);
       setClusterFilter(ALL_KEY);
       setCategoryFilter(ALL_KEY);
-      setDurationFilter([]);
+      setSourceFilter(DEFAULT_SOURCE_FILTER);
+      setDurationFilter([...DEFAULT_DURATION_FILTER]);
       setRcFilter(ALL_KEY);
       setRcSubFilter(ALL_KEY);
       setMergeFile(null);
@@ -383,14 +464,16 @@ export default function App() {
   }, [summary, viewRows, groupedBySite, dailyTrend, regionalFilter]);
 
   const handleDownloadBulkRcTemplate = useCallback(() => {
-    if (!viewRows.length) {
-      setBulkError('Tidak ada ticket di filter aktif untuk dibuatkan template Excel.');
+    // Baris NOIM read-only (bukan ticket INAP), jadi tidak ikut template bulk RC.
+    const editableRows = viewRows.filter((r) => r._source !== 'NOIM');
+    if (!editableRows.length) {
+      setBulkError('Tidak ada ticket INAP di filter aktif untuk dibuatkan template Excel.');
       return;
     }
     const label = regionalFilter === ALL_KEY ? 'SemuaRegional' : regionalFilter;
-    exportBulkRcTemplate(viewRows, `RC_Bulk_Template_${label}.xlsx`);
+    exportBulkRcTemplate(editableRows, `RC_Bulk_Template_${label}.xlsx`);
     setBulkError('');
-    setBulkMessage(`Template bulk RC berhasil dibuat untuk ${viewRows.length} ticket.`);
+    setBulkMessage(`Template bulk RC berhasil dibuat untuk ${editableRows.length} ticket.`);
   }, [regionalFilter, viewRows]);
 
   const handleBulkRcUpload = useCallback(
@@ -408,6 +491,7 @@ export default function App() {
         const validPic = new Set(PIC_OPTIONS);
         const ticketMap = new Map();
         for (const row of viewRows) {
+          if (row._source === 'NOIM') continue;
           const key = String(row.ticketId ?? '').trim();
           if (!key) continue;
           if (!ticketMap.has(key)) ticketMap.set(key, []);
@@ -508,7 +592,11 @@ export default function App() {
     onClusterChange: setClusterFilter,
     clusterOptions,
     categoryFilter,
-    onCategoryChange: setCategoryFilter,
+    onCategoryChange: handleCategoryChange,
+    sourceFilter,
+    onSourceChange: setSourceFilter,
+    sourceEnabled,
+    onReset: handleResetFilters,
     durationFilter,
     onDurationChange: setDurationFilter,
     rcFilter,
@@ -538,6 +626,14 @@ export default function App() {
           onImportMaster={handleImportMaster}
           masterImporting={masterImporting}
           masterCount={masterCount}
+          noimFile={noimFile}
+          onNoimFileChange={setNoimFile}
+          onUploadNoim={handleUploadNoim}
+          noimUploading={noimUploading}
+          noimCount={noimSiteSet.size}
+          noimBcTime={sourceStats.bcTime}
+          noimMessage={noimMessage}
+          noimError={noimError}
         />
       );
     }
@@ -552,9 +648,11 @@ export default function App() {
           trendLogHasOlderData={trendLogHasOlderData}
           regionalFilter={regionalFilter}
           viewRows={viewRows}
+          sourceMode={effectiveSource}
+          sourceStats={sourceStats}
           filters={filterProps}
           onGoToUpload={() => goToPage('upload')}
-          onRowClick={(r) => setSelectedTicketKey(r._key)}
+          onRowClick={(r) => r._source !== 'NOIM' && setSelectedTicketKey(r._key)}
           onExportExcel={handleExport}
         />
       );
@@ -608,10 +706,10 @@ export default function App() {
     return null;
   }, [
     active, mergeFile, swfmFile, masterFile, processing, progressMessage, error,
-    masterImporting, masterCount, summary, removedStats, dailyTrend, dailyTrendByRegion,
+    masterImporting, masterCount, noimFile, noimUploading, noimMessage, noimError, noimSiteSet, sourceStats, sourceFilter, effectiveSource, summary, removedStats, dailyTrend, dailyTrendByRegion,
     trendHasGranularFilter, trendLogHasOlderData, regionalFilter,
-    nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, nopOptions, clusterOptions, viewRows,
-    handleProcess, handleExport, handleImportMaster, handleDownloadBulkRcTemplate, handleBulkRcUpload,
+    nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, dateFrom, dateTo, nopOptions, clusterOptions, viewRows,
+    handleProcess, handleExport, handleImportMaster, handleUploadNoim, handleCategoryChange, handleDownloadBulkRcTemplate, handleBulkRcUpload,
   ]);
 
   return (

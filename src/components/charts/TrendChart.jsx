@@ -55,8 +55,13 @@ function PeriodSelector({ period, onChange }) {
  * dengan nilai Weekly/Monthly/dst = RATA-RATA harian dalam periode itu (bukan total),
  * karena data sumbernya adalah snapshot backlog harian, bukan jumlah ticket baru per hari.
  */
-export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranularFilter, logHasOlderData }) {
-  const [period, setPeriod] = useState('daily');
+export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranularFilter, logHasOlderData, fixedPeriod }) {
+  // `fixedPeriod` dipakai saat export PDF: periode dikunci, selector disembunyikan, dan
+  // animasi dimatikan supaya hasil screenshot langsung utuh.
+  const [periodState, setPeriod] = useState('daily');
+  const period = fixedPeriod || periodState;
+  const animate = !fixedPeriod;
+  const fixedLabel = fixedPeriod ? TREND_PERIODS.find((p) => p.key === fixedPeriod)?.label : null;
   const isByRegion = Array.isArray(dataByRegion);
   const rawData = isByRegion ? dataByRegion : dataSingle;
 
@@ -89,8 +94,10 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
-          <h3 className="font-semibold text-slate-800">Trend — Perbandingan Antar Regional</h3>
-          <PeriodSelector period={period} onChange={setPeriod} />
+          <h3 className="font-semibold text-slate-800">
+            Trend — Perbandingan Antar Regional{fixedLabel ? ` (${fixedLabel})` : ''}
+          </h3>
+          {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
         </div>
         {period !== 'daily' && (
           <p className="text-[11px] text-slate-400 mb-1">Nilai menunjukkan total akumulasi seluruh hari dalam periode ini.</p>
@@ -103,7 +110,7 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
             <Tooltip />
             <Legend />
             {regions.map((reg) => (
-              <Bar key={reg} dataKey={reg} name={reg} fill={REGION_COLORS[reg] || '#94a3b8'}>
+              <Bar key={reg} dataKey={reg} name={reg} fill={REGION_COLORS[reg] || '#94a3b8'} isAnimationActive={animate}>
                 <LabelList dataKey={reg} content={barLabel} />
               </Bar>
             ))}
@@ -114,6 +121,7 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
               stroke="#0f172a"
               strokeWidth={2.5}
               dot={{ r: 3 }}
+              isAnimationActive={animate}
             >
               <LabelList dataKey="total" content={totalLabel} />
             </Line>
@@ -130,8 +138,8 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
-        <h3 className="font-semibold text-slate-800">Trend</h3>
-        <PeriodSelector period={period} onChange={setPeriod} />
+        <h3 className="font-semibold text-slate-800">Trend{fixedLabel ? ` (${fixedLabel})` : ''}</h3>
+        {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
       </div>
       {period !== 'daily' && (
         <p className="text-[11px] text-slate-400 mb-1">Nilai menunjukkan total akumulasi seluruh hari dalam periode ini.</p>
@@ -143,16 +151,22 @@ export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranu
           <YAxis />
           <Tooltip />
           <Legend />
-          <Bar dataKey="cellDown" name="CellDown" fill="#e0301e" stackId="a" />
-          <Bar dataKey="siteDown" name="SiteDown" fill="#0ea5e9" stackId="a" />
-          <Line type="monotone" dataKey="total" name="Total" stroke="#0f172a" strokeWidth={2} dot={{ r: 3 }}>
+          <Bar dataKey="cellDown" name="CellDown" fill="#e0301e" stackId="a" isAnimationActive={animate} />
+          <Bar dataKey="siteDown" name="SiteDown" fill="#0ea5e9" stackId="a" isAnimationActive={animate} />
+          <Line type="monotone" dataKey="total" name="Total" stroke="#0f172a" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={animate}>
             <LabelList dataKey="total" content={totalLabel} />
           </Line>
         </ComposedChart>
       </ResponsiveContainer>
       <p className="text-xs text-slate-600 mt-2">
         {last.date}: <strong>{last.total}</strong> ticket
-        {prev ? `, ${delta >= 0 ? 'naik' : 'turun'} <strong>${Math.abs(delta)}</strong> ticket dibanding ${prev.date} (${prev.total}).` : '.'}
+        {prev ? (
+          <>
+            , {delta >= 0 ? 'naik' : 'turun'} <strong>{Math.abs(delta)}</strong> ticket dibanding {prev.date} ({prev.total}).
+          </>
+        ) : (
+          '.'
+        )}
       </p>
     </div>
   );

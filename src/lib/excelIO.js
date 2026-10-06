@@ -7,6 +7,7 @@ import {
   SWFM_REQUIRED_HEADERS,
   MASTER_COLUMNS,
   MASTER_REQUIRED_HEADERS,
+  NOIM_REQUIRED_HEADERS,
   HEADER_ALIASES,
   RC_CATEGORIES,
   PIC_OPTIONS,
@@ -174,6 +175,80 @@ export async function readMasterSiteFile(file) {
     );
   }
   return sheetToJsonFromHeaderRow(found.ws, found.headerRow);
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+// Tanggal Excel -> 'YYYY-MM-DD HH:mm:ss' (waktu apa adanya seperti di sel, tanpa konversi
+// timezone) supaya jam di database sama persis dengan yang tampil di file NOIM.
+function toSqlDateTime(value) {
+  if (value == null || value === '') return null;
+  let d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  // SheetJS kadang menghasilkan selisih sepersekian detik (mis. 07:09:59.999 untuk 07:10:00).
+  d = new Date(Math.round(d.getTime() / 1000) * 1000);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function cellText(v) {
+  if (v == null) return '';
+  return String(v).trim();
+}
+
+/**
+ * Baca file Data NOIM. Baris tanpa Site ID dilewati (di file asli ada baris kosong /
+ * baris yang cuma berisi Remark). Kalau ada Site ID dobel, yang dipertahankan adalah
+ * yang Start Time-nya paling lama (site itu sudah down paling lama).
+ * Return: { rows, skippedNoSiteId, duplicates }
+ */
+export async function readNoimFile(file) {
+  const wb = await readWorkbook(file);
+  const found = findDataSheet(wb, NOIM_REQUIRED_HEADERS);
+  if (!found) {
+    throw new Error(
+      `Tidak menemukan sheet dengan kolom "${NOIM_REQUIRED_HEADERS.join('", "')}" di file "${file.name}". Pastikan ini file Data NOIM yang benar.`
+    );
+  }
+  const raw = sheetToJsonFromHeaderRow(found.ws, found.headerRow);
+
+  const bySite = new Map();
+  let skippedNoSiteId = 0;
+  let duplicates = 0;
+  for (const r of raw) {
+    const siteId = cellText(r['Site ID']);
+    if (!siteId) {
+      skippedNoSiteId++;
+      continue;
+    }
+    const row = {
+      siteId,
+      regional: cellText(r['Regional']),
+      rcTier2: cellText(r['RC Tier 2']),
+      rcCategory: cellText(r['RC Category']),
+      startTime: toSqlDateTime(r['Start Time']),
+      responsibleParty: cellText(r['Responsible Party']),
+      nossa: cellText(r['NOSSA']),
+      bcTime: toSqlDateTime(r['BC Time']),
+      duration: cellText(r['Duration']),
+      ticket: cellText(r['Ticket']),
+      rcTier1: cellText(r['RC Tier 1']),
+      nop: cellText(r['NOP']),
+      rcCategoryValidasi: cellText(r['RC Category Validasi']),
+      validasiRc: cellText(r['Validasi RC']),
+      remark: cellText(r['Remark']),
+      catTif: cellText(r['CAT TIF']),
+    };
+    const existing = bySite.get(siteId);
+    if (!existing) {
+      bySite.set(siteId, row);
+    } else {
+      duplicates++;
+      if (row.startTime && (!existing.startTime || row.startTime < existing.startTime)) bySite.set(siteId, row);
+    }
+  }
+  return { rows: Array.from(bySite.values()), skippedNoSiteId, duplicates };
 }
 
 export const RC_BULK_TEMPLATE_COLUMNS = [

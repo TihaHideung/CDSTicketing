@@ -168,3 +168,39 @@ CREATE TABLE IF NOT EXISTS eas_vswr_history (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+-- Riwayat summary EAS & VSWR Tracking: 1 baris per tanggal update. `data` berisi record
+-- lengkap (metrics, summaryText, raw EAS/VSWR, generatedAt). Generate ulang di tanggal
+-- yang sama menimpa baris tanggal itu.
+CREATE TABLE IF NOT EXISTS eas_vswr_history (
+  date_iso   DATE PRIMARY KEY,
+  data       JSON NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- Data NOIM (snapshot site down versi NOIM) sebagai pembanding hasil validasi INAP+SWFM.
+-- 1 baris per Site ID. Tiap upload NOIM baru MENGGANTI seluruh isi tabel ini (snapshot
+-- terbaru, bukan kumulatif), supaya site yang sudah pulih tidak ikut jadi irisan palsu.
+CREATE TABLE IF NOT EXISTS noim_sites (
+  site_id              VARCHAR(100) PRIMARY KEY,
+  regional             VARCHAR(50),
+  rc_tier2             VARCHAR(150),
+  rc_category          VARCHAR(150),
+  start_time           DATETIME,
+  responsible_party    VARCHAR(150),
+  nossa                VARCHAR(255),
+  bc_time              DATETIME,
+  duration             VARCHAR(50),
+  ticket               VARCHAR(100),
+  rc_tier1             VARCHAR(150),
+  nop                  VARCHAR(150),
+  rc_category_validasi VARCHAR(150),
+  validasi_rc          TEXT,
+  remark               TEXT,
+  cat_tif              VARCHAR(100),
+  uploaded_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_noim_regional (regional),
+  INDEX idx_noim_nop (nop),
+  INDEX idx_noim_ticket (ticket)
+) ENGINE=InnoDB;

@@ -91,6 +91,25 @@ export async function saveEasVswrRecord(record) {
   });
 }
 
+export async function getEasVswrHistory() {
+  return apiFetch('/api/eas-vswr/history');
+}
+
+export async function saveEasVswrRecord(record) {
+  return apiFetch(`/api/eas-vswr/history/${encodeURIComponent(record.dateISO)}`, {
+    method: 'PUT',
+    body: JSON.stringify(record),
+  });
+}
+
+export async function replaceNoim(rows) {
+  return apiFetch('/api/noim/replace', { method: 'POST', body: JSON.stringify({ rows }) });
+}
+
+export async function getNoim() {
+  return apiFetch('/api/noim');
+}
+
 export function todayKey(date = new Date()) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
