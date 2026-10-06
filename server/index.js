@@ -215,20 +215,6 @@ async function ensureSchema() {
 
   try {
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS eas_vswr_history (
-        date_iso   DATE PRIMARY KEY,
-        data       JSON NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB
-    `);
-    console.log('Migrasi: tabel `eas_vswr_history` siap dipakai untuk riwayat EAS & VSWR Tracking.');
-  } catch (err) {
-    console.error('Gagal membuat eas_vswr_history:', err.message);
-  }
-
-  try {
-    await pool.query(`
 CREATE TABLE IF NOT EXISTS noim_sites (
   site_id              VARCHAR(100) PRIMARY KEY,
   regional             VARCHAR(50),
