@@ -52,11 +52,11 @@ export default function Dashboard({
   const [exportError, setExportError] = useState('');
   const [trendExportPeriods, setTrendExportPeriods] = useState([]); // periode trend yang di-render tersembunyi saat export
 
-  const handleConfirmExport = async ({ excel, pdf, charts, trendPeriods: selectedPeriods = [] }) => {
+  const handleConfirmExport = async ({ excel, pdf, charts, trendPeriods: selectedPeriods = [], uploadDateFrom, uploadDateTo }) => {
     setExporting(true);
     setExportError('');
     try {
-      if (excel) onExportExcel();
+      if (excel) await onExportExcel({ uploadDateFrom, uploadDateTo });
 
       if (pdf && charts.length > 0) {
         const periods = charts.includes('trend') ? selectedPeriods : [];

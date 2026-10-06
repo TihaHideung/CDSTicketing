@@ -81,19 +81,20 @@ di terminal lain (`npm run dev`), dan secara default sudah mengarah ke
 
 ## 5. Endpoint API
 
-| Method | Path | Keterangan |
-|---|---|---|
-| GET | `/api/active-tickets` | Semua ticket aktif |
-| POST | `/api/active-tickets/upsert` | Upsert banyak ticket sekaligus (mempertahankan RC/Detail/Action Plan yang sudah diisi petugas) |
-| PATCH | `/api/active-tickets/:ticketKey` | Update RC/RC Sub/Detail/Action Plan satu ticket |
-| GET / POST | `/api/swfm/handled`, `/api/swfm/info` | Baca / gabung data SWFM kumulatif |
-| POST | `/api/swfm/merge` | Gabung hasil SWFM Check baru + auto-purge ticket yang sudah ditangani |
-| GET / POST | `/api/daily-trend` | Baca / tambah entry trend harian |
-| GET | `/api/eas-vswr/history` | Semua riwayat summary EAS & VSWR, urut tanggal naik |
-| PUT | `/api/eas-vswr/history/:dateISO` | Simpan/timpa summary EAS & VSWR untuk satu tanggal (`YYYY-MM-DD`) |
-| POST | `/api/site-master/import` | Import massal Master Site Detail |
-| POST | `/api/site-master/lookup` | Cari Cluster/Site Name untuk daftar Site ID |
-| GET | `/api/site-master/count` | Jumlah site tersimpan |
+| Method     | Path                                                 | Keterangan                                                                                                              |
+| ---------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| GET        | `/api/active-tickets`                                | Semua ticket aktif                                                                                                      |
+| POST       | `/api/active-tickets/upsert`                         | Upsert banyak ticket sekaligus (mempertahankan RC/Detail/Action Plan yang sudah diisi petugas)                          |
+| PATCH      | `/api/active-tickets/:ticketKey`                     | Update RC/RC Sub/Detail/Action Plan satu ticket                                                                         |
+| GET        | `/api/archive-history?from=YYYY-MM-DD&to=YYYY-MM-DD` | Snapshot ticket archive dalam rentang tanggal upload (inklusif); parameter `date` tetap bisa dipakai untuk satu tanggal |
+| GET / POST | `/api/swfm/handled`, `/api/swfm/info`                | Baca / gabung data SWFM kumulatif                                                                                       |
+| POST       | `/api/swfm/merge`                                    | Gabung hasil SWFM Check baru + auto-purge ticket yang sudah ditangani                                                   |
+| GET / POST | `/api/daily-trend`                                   | Baca / tambah entry trend harian                                                                                        |
+| GET        | `/api/eas-vswr/history`                              | Semua riwayat summary EAS & VSWR, urut tanggal naik                                                                     |
+| PUT        | `/api/eas-vswr/history/:dateISO`                     | Simpan/timpa summary EAS & VSWR untuk satu tanggal (`YYYY-MM-DD`)                                                       |
+| POST       | `/api/site-master/import`                            | Import massal Master Site Detail                                                                                        |
+| POST       | `/api/site-master/lookup`                            | Cari Cluster/Site Name untuk daftar Site ID                                                                             |
+| GET        | `/api/site-master/count`                             | Jumlah site tersimpan                                                                                                   |
 
 Semua endpoint ini sudah diuji langsung (bukan cuma ditulis) terhadap instance
 MySQL/MariaDB nyata, termasuk skenario: import 20 ribuan baris master site, upload 3

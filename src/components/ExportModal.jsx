@@ -40,14 +40,17 @@ function Check({ checked, onChange, disabled, children, className = '' }) {
  * Komponen ini di-mount hanya saat dibuka, jadi pilihan selalu mulai dari default.
  */
 export default function ExportModal({ onClose, onConfirm, exporting, error, trendAvailable, trendUnavailableReason }) {
-  const [excel, setExcel] = useState(true);
-  const [pdf, setPdf] = useState(true);
-  const [charts, setCharts] = useState(() => EXPORT_CHARTS.map((c) => c.id));
-  const [trendPeriods, setTrendPeriods] = useState(['daily']);
+  const [excel, setExcel] = useState(false);
+  const [uploadDateFrom, setUploadDateFrom] = useState('');
+  const [uploadDateTo, setUploadDateTo] = useState('');
+  const [pdf, setPdf] = useState(false);
+  const [charts, setCharts] = useState([]);
+  const [trendPeriods, setTrendPeriods] = useState([]);
 
   const selectableIds = EXPORT_CHARTS.filter((c) => c.id !== 'trend' || trendAvailable).map((c) => c.id);
   const trendSelected = charts.includes('trend') && trendAvailable;
   const trendNeedsPeriod = trendSelected && trendPeriods.length === 0;
+  const uploadDateInvalid = excel && (!uploadDateFrom || !uploadDateTo || uploadDateFrom > uploadDateTo);
   // Urutan periode mengikuti TREND_PERIODS, bukan urutan klik.
   const orderedPeriods = TREND_EXPORT_PERIODS.map((p) => p.key).filter((k) => trendPeriods.includes(k));
   // Trend tanpa periode tidak dihitung sebagai grafik yang akan diexport.
@@ -55,7 +58,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, tren
 
   const toggleChart = (id, on) => setCharts((prev) => (on ? [...prev, id] : prev.filter((x) => x !== id)));
   const toggleTrendPeriod = (key, on) => setTrendPeriods((prev) => (on ? [...prev, key] : prev.filter((k) => k !== key)));
-  const canExport = !exporting && !(pdf && trendNeedsPeriod) && (excel || (pdf && activeCharts.length > 0));
+  const canExport = !exporting && !uploadDateInvalid && !(pdf && trendNeedsPeriod) && (excel || (pdf && activeCharts.length > 0));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -79,7 +82,39 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, tren
               <FileSpreadsheet size={16} className="text-emerald-600" />
               <span className="font-medium">Excel (.xlsx)</span>
             </Check>
-            <p className="ml-6 mt-1 text-xs text-slate-400">Data ticket, ringkasan, dan trend harian.</p>
+            <p className="ml-6 mt-1 text-xs text-slate-400">Data snapshot upload, ringkasan, dan trend berdasarkan tanggal upload.</p>
+            {excel && (
+              <div className="ml-6 mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="text-xs font-medium text-slate-600">
+                  Upload dari tanggal
+                  <input
+                    type="date"
+                    value={uploadDateFrom}
+                    max={uploadDateTo || undefined}
+                    onChange={(event) => setUploadDateFrom(event.target.value)}
+                    disabled={exporting}
+                    className="mt-1 block w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm font-normal text-slate-700"
+                  />
+                </label>
+                <label className="text-xs font-medium text-slate-600">
+                  Sampai tanggal
+                  <input
+                    type="date"
+                    value={uploadDateTo}
+                    min={uploadDateFrom || undefined}
+                    onChange={(event) => setUploadDateTo(event.target.value)}
+                    disabled={exporting}
+                    className="mt-1 block w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm font-normal text-slate-700"
+                  />
+                </label>
+              </div>
+            )}
+            {excel && uploadDateInvalid && uploadDateFrom && uploadDateTo && uploadDateFrom > uploadDateTo && (
+              <p className="ml-6 mt-1 text-xs text-red-500">Tanggal awal tidak boleh melewati tanggal akhir.</p>
+            )}
+            {excel && (!uploadDateFrom || !uploadDateTo) && (
+              <p className="ml-6 mt-1 text-xs text-slate-500">Pilih tanggal awal dan akhir upload untuk ekspor Excel.</p>
+            )}
           </div>
 
           <div className="rounded-lg border border-slate-200 p-3">
@@ -170,7 +205,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, tren
           <button
             type="button"
             disabled={!canExport}
-            onClick={() => onConfirm({ excel, pdf, charts: activeCharts, trendPeriods: orderedPeriods })}
+            onClick={() => onConfirm({ excel, pdf, charts: activeCharts, trendPeriods: orderedPeriods, uploadDateFrom, uploadDateTo })}
             className="rounded-md bg-brand-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {exporting ? 'Mengekspor...' : 'Export'}

@@ -11,12 +11,14 @@ import FilterBar, { ALL_KEY, UNSET_KEY } from './components/FilterBar.jsx';
 import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readNoimFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
 import { cleanMergedRows, matchAgainstSwfm, dedupeSiteDownBySiteId, validateRegionalRows } from './lib/cleaning.js';
 import { buildSwfmMaps } from './lib/swfmCheck.js';
-import { computeSummary, buildFilteredDailyTrend, buildFilteredDailyTrendByRegion, groupBySiteId } from './lib/aggregate.js';
+import { computeSummary, buildFilteredDailyTrend, buildFilteredDailyTrendByRegion } from './lib/aggregate.js';
 import { exportWorkbook } from './lib/exportExcel.js';
 import { REGIONS, MASTER_COLUMNS, matchesRegionalTag, RC_CATEGORIES, RC_STRUCTURE, PIC_OPTIONS, getSubcategoriesFor, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, DEFAULT_DURATION_FILTER, DEFAULT_SOURCE_FILTER } from './lib/constants.js';
 import { noimToViewRows, buildNoimSiteSet, normalizeSiteId, computeSourceStats } from './lib/noim.js';
 import {
   getActiveTickets,
+  getArchiveHistory,
+  getLatestInapUpload,
   upsertActiveTickets,
   updateTicketFields,
   mergeSwfm,
@@ -95,7 +97,7 @@ export default function App() {
   const [processing, setProcessing] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
   const [error, setError] = useState('');
-  const [lastProcessedAt, setLastProcessedAt] = useState('');
+  const [lastInapUploadAt, setLastInapUploadAt] = useState(null);
   const [masterImporting, setMasterImporting] = useState(false);
   const [masterCount, setMasterCount] = useState(null);
   const [noimFile, setNoimFile] = useState(null);
@@ -123,20 +125,22 @@ export default function App() {
   const [bulkError, setBulkError] = useState('');
   const bulkInputRef = useRef(null);
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async ({ refreshUploadTimestamp = true } = {}) => {
     try {
       // Data NOIM dimuat terpisah & tidak boleh bikin seluruh refresh gagal kalau
       // endpoint-nya belum tersedia (mis. backend lama belum di-deploy ulang).
-      const [tickets, log, count, noim] = await Promise.all([
+      const [tickets, log, count, noim, latestUpload] = await Promise.all([
         getActiveTickets(),
         getDailyTrendLog(),
         getSiteMasterCount(),
         getNoim().catch(() => []),
+        refreshUploadTimestamp ? getLatestInapUpload().catch(() => null) : Promise.resolve(null),
       ]);
       setAllRows(tickets);
       setDailyTrendLog(log);
       setMasterCount(count.count);
       setNoimRows(Array.isArray(noim) ? noim : []);
+      if (refreshUploadTimestamp) setLastInapUploadAt(latestUpload?.lastUploadedAt || null);
       setLoadError('');
     } catch (err) {
       setLoadError(err.message || String(err));
@@ -205,7 +209,6 @@ export default function App() {
   }, [regionRows, nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, dateFrom, dateTo]);
 
   const summary = useMemo(() => (viewRows.length ? computeSummary(viewRows) : null), [viewRows]);
-  const groupedBySite = useMemo(() => groupBySiteId(viewRows), [viewRows]);
 
   // Kriteria filter Dashboard, dinormalisasi (sentinel ALL_KEY/UNSET_KEY -> null/flag)
   // supaya Trend Harian ikut filter NOP/Cluster/Category/Duration/RC/RC Sub yang aktif,
@@ -429,7 +432,8 @@ export default function App() {
         uploadDateKey
       );
 
-      await refreshAll();
+      setLastInapUploadAt(new Date());
+      await refreshAll({ refreshUploadTimestamp: false });
       setRegionalFilter(ALL_KEY);
       setNopFilter(ALL_KEY);
       setClusterFilter(ALL_KEY);
@@ -447,7 +451,6 @@ export default function App() {
         matchedHandled: removedHandled,
         swfmRowsScanned: swfmResult?.totalRows || 0,
       });
-      setLastProcessedAt(now.toLocaleString('id-ID'));
       setActive('dashboard');
     } catch (err) {
       setError(err.message || String(err));
@@ -457,11 +460,72 @@ export default function App() {
     }
   }, [mergeFile, swfmFile, refreshAll]);
 
-  const handleExport = useCallback(() => {
-    if (!summary || !viewRows.length) return;
+  const handleExport = useCallback(async ({ uploadDateFrom, uploadDateTo }) => {
+    if (effectiveSource === SOURCE_NOIM) {
+      throw new Error('Riwayat tanggal upload hanya tersedia untuk data INAP di archive.');
+    }
+    const archiveRows = await getArchiveHistory(uploadDateFrom, uploadDateTo);
+    let rows = archiveRows.map((r) => ({
+      _key: r.ticket_key,
+      ticketId: r.ticket_id,
+      catAlarm: r.cat_alarm,
+      subType: r.sub_type,
+      siteId: r.site_id,
+      siteName: r.site_name,
+      nop: r.nop,
+      cluster: r.cluster,
+      regional: r.regional,
+      regionalCode: r.regional_code,
+      siteClass: r.site_class,
+      siteType: r.site_type,
+      alarmName: r.alarm_name,
+      alarmGroup: r.alarm_group,
+      emsName: r.ems_name,
+      clearanceStatus: r.clearance_status,
+      rc: r.rc || '',
+      rcSub: r.rc_sub || '',
+      pic: r.pic || '',
+      detail: r.detail || '',
+      actionPlan: r.action_plan || '',
+      lastOccurredOn: r.last_occurred_on,
+      ageHours: r.age_hours ?? 0,
+      duration: r.duration_bucket,
+      uploadDate: String(r.upload_date).slice(0, 10),
+    }));
+
+    if (regionalFilter !== ALL_KEY) {
+      rows = rows.filter((r) => matchesRegionalTag(r.regional, regionalFilter) || matchesRegionalTag(r.regionalCode, regionalFilter));
+    }
+    if (effectiveSource === SOURCE_BOTH) {
+      rows = rows.filter((r) => r.catAlarm === 'SiteDown' && noimSiteSet.has(normalizeSiteId(r.siteId)));
+    }
+    if (nopFilter !== ALL_KEY) rows = rows.filter((r) => r.nop === nopFilter);
+    if (clusterFilter !== ALL_KEY) rows = rows.filter((r) => r.cluster === clusterFilter);
+    if (categoryFilter !== ALL_KEY) rows = rows.filter((r) => r.catAlarm === categoryFilter);
+    if (durationFilter.length > 0) rows = rows.filter((r) => durationFilter.includes(r.duration));
+    if (rcFilter === UNSET_KEY) rows = rows.filter((r) => !r.rc);
+    else if (rcFilter !== ALL_KEY) {
+      rows = rows.filter((r) => r.rc === rcFilter);
+      if (rcSubFilter !== ALL_KEY) rows = rows.filter((r) => r.rcSub === rcSubFilter);
+    }
+    if (dateFrom) rows = rows.filter((r) => {
+      const occurredDate = toDateKey(r.lastOccurredOn);
+      return occurredDate && occurredDate >= dateFrom;
+    });
+    if (dateTo) rows = rows.filter((r) => {
+      const occurredDate = toDateKey(r.lastOccurredOn);
+      return occurredDate && occurredDate <= dateTo;
+    });
+    if (!rows.length) throw new Error('Tidak ada data archive yang sesuai dengan rentang tanggal dan filter aktif.');
+
+    const summary = computeSummary(rows);
     const label = regionalFilter === ALL_KEY ? 'SemuaRegional' : regionalFilter;
-    exportWorkbook({ cleanRows: viewRows, summary, groupedBySite, dailyTrend, fileName: `CDS_Monitoring_${label}.xlsx` });
-  }, [summary, viewRows, groupedBySite, dailyTrend, regionalFilter]);
+    exportWorkbook({
+      cleanRows: rows,
+      summary,
+      fileName: `CDS_Monitoring_${label}_${uploadDateFrom}_sd_${uploadDateTo}.xlsx`,
+    });
+  }, [effectiveSource, regionalFilter, getArchiveHistory, noimSiteSet, nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, dateFrom, dateTo]);
 
   const handleDownloadBulkRcTemplate = useCallback(() => {
     // Baris NOIM read-only (bukan ticket INAP), jadi tidak ikut template bulk RC.
@@ -716,7 +780,7 @@ export default function App() {
     <div className="flex min-h-screen">
       <Sidebar active={active} onNavigate={goToPage} />
       <div className="flex-1 flex flex-col">
-        <Topbar active={active} lastProcessedAt={lastProcessedAt} />
+        <Topbar active={active} lastInapUploadAt={lastInapUploadAt} />
         {loadError && (
           <div className="mx-8 mt-4 text-sm bg-amber-50 text-amber-700 border border-amber-200 rounded-md px-4 py-3">
             Gagal terhubung ke server backend: {loadError}. Pastikan backend jalan (lihat server/README.md).

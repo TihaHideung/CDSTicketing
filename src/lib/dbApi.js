@@ -64,6 +64,28 @@ export async function getDailyTrendLog() {
   return apiFetch('/api/daily-trend');
 }
 
+export async function getArchiveHistory(from, to) {
+  const query = new URLSearchParams({ from, to });
+  return apiFetch(`/api/archive-history?${query.toString()}`);
+}
+
+export async function getLatestInapUpload() {
+  try {
+    return await apiFetch('/api/archive-history/latest-upload');
+  } catch (error) {
+    if (!error.message.includes('(status 404)')) throw error;
+
+    const rows = await apiFetch('/api/archive-history');
+    const latest = rows.reduce((current, row) => {
+      const timestamp = Date.parse(row.uploaded_at);
+      return Number.isFinite(timestamp) && timestamp > (current?.timestamp ?? -Infinity)
+        ? { value: row.uploaded_at, timestamp }
+        : current;
+    }, null);
+    return { lastUploadedAt: latest?.value || null };
+  }
+}
+
 export async function upsertDailyTrendEntry(entry) {
   return apiFetch('/api/daily-trend', { method: 'POST', body: JSON.stringify(entry) });
 }

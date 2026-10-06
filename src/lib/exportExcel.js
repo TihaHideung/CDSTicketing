@@ -10,6 +10,7 @@ function fmtDate(d) {
 
 function buildRawSheet(rows) {
   const data = rows.map((r) => ({
+    'Upload Date': r.uploadDate || '',
     'Ticket ID': r.ticketId,
     'Cat Alarm': r.catAlarm,
     'Sub Type': r.subType,
@@ -94,38 +95,10 @@ function buildPivotSheet(summary) {
   return ws;
 }
 
-function buildSiteSheet(groupedBySite) {
-  const data = groupedBySite.map((g) => ({
-    'Site ID': g.siteId,
-    Regional: g.regional,
-    NOP: g.nop,
-    'Site Class': g.siteClass,
-    'Cell Down (kali)': g.cellDownCount,
-    'Site Down (kali)': g.siteDownCount,
-  }));
-  return XLSX.utils.json_to_sheet(data);
-}
-
-function buildTrendSheet(dailyTrend) {
-  const data = dailyTrend.map((h) => ({
-    Tanggal: h.date,
-    CellDown: h.cellDown,
-    SiteDown: h.siteDown,
-    Total: h.total,
-  }));
-  return XLSX.utils.json_to_sheet(data);
-}
-
-export function exportWorkbook({ cleanRows, summary, groupedBySite, dailyTrend, fileName }) {
+export function exportWorkbook({ cleanRows, summary, fileName }) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, buildRawSheet(cleanRows), 'RAW_Clean');
   XLSX.utils.book_append_sheet(wb, buildPivotSheet(summary), 'Pivot_Summary');
-  if (groupedBySite && groupedBySite.length) {
-    XLSX.utils.book_append_sheet(wb, buildSiteSheet(groupedBySite), 'Per_Site_ID');
-  }
-  if (dailyTrend && dailyTrend.length) {
-    XLSX.utils.book_append_sheet(wb, buildTrendSheet(dailyTrend), 'Trend_Harian');
-  }
   const name = fileName || `CDS_Monitoring_${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(wb, name);
 }

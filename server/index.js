@@ -769,14 +769,26 @@ app.post('/api/swfm/merge', async (req, res) => {
 
 // ---------- Daily Trend ----------
 
+app.get('/api/archive-history/latest-upload', async (_req, res) => {
+  const [[row]] = await pool.query(
+    "SELECT DATE_FORMAT(MAX(uploaded_at), '%Y-%m-%d %H:%i:%s') AS lastUploadedAt FROM ticket_archive_history"
+  );
+  res.json({ lastUploadedAt: row?.lastUploadedAt || null });
+});
+
 app.get('/api/archive-history', async (req, res) => {
-  const { date } = req.query;
+  const { date, from, to } = req.query;
   const params = [];
   let sql = 'SELECT * FROM ticket_archive_history';
 
   if (date) {
     sql += ' WHERE upload_date = ?';
     params.push(date);
+  } else if (from && to) {
+    sql += ' WHERE upload_date BETWEEN ? AND ?';
+    params.push(from, to);
+  } else if (from || to) {
+    return res.status(400).json({ error: 'Tanggal awal dan akhir harus diisi bersama.' });
   }
 
   sql += ' ORDER BY upload_date ASC, ticket_key ASC';
