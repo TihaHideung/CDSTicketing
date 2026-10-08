@@ -61,6 +61,9 @@ export default function UploadPanel({
   onUploadNoim,
   noimUploading,
   noimCount,
+  noimDate,
+  onNoimDateChange,
+  noimDates = [],
   noimBcTime,
   noimMessage,
   noimError,
@@ -116,8 +119,26 @@ export default function UploadPanel({
         <h2 className="font-semibold text-slate-800 mb-1">Data NOIM</h2>
         <p className="text-sm text-slate-500 mb-4">
           Data Site Down versi NOIM, dipakai sebagai pembanding hasil validasi INAP &amp; SWFM di Dashboard.
-          Setiap upload baru <span className="font-medium">menggantikan</span> seluruh data NOIM sebelumnya.
+          Pilih <span className="font-medium">tanggal data</span> NOIM yang diupload. Data tersimpan terus per tanggal;
+          upload ulang di tanggal yang sama hanya <span className="font-medium">menggantikan</span> data tanggal itu.
         </p>
+        <div className="mb-4 flex items-center gap-3 flex-wrap">
+          <label htmlFor="noim-date" className="text-sm font-medium text-slate-800">
+            Tanggal data NOIM
+          </label>
+          <input
+            id="noim-date"
+            type="date"
+            value={noimDate || ''}
+            onChange={(e) => onNoimDateChange(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+          />
+          {noimDate && noimDates.some((d) => d.date === noimDate) && (
+            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+              Tanggal ini sudah ada datanya ({noimDates.find((d) => d.date === noimDate).count.toLocaleString('id-ID')} site) dan akan diganti.
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-4 flex-wrap">
           <FileSlot
             label="Data NOIM (Excel/CSV)"
@@ -126,7 +147,7 @@ export default function UploadPanel({
             onChange={onNoimFileChange}
           />
           <button
-            disabled={!noimFile || noimUploading}
+            disabled={!noimFile || !noimDate || noimUploading}
             onClick={onUploadNoim}
             className="px-4 py-2 rounded-md bg-navy-900 text-white text-sm font-medium disabled:opacity-40"
           >
@@ -134,11 +155,18 @@ export default function UploadPanel({
           </button>
           {noimCount != null && noimCount > 0 && (
             <span className="text-xs text-slate-500">
-              {noimCount.toLocaleString('id-ID')} site NOIM tersimpan
+              {noimCount.toLocaleString('id-ID')} site NOIM pada tanggal terpilih di dashboard
               {noimBcTime ? ` (BC Time ${new Date(noimBcTime).toLocaleString('id-ID')})` : ''}
             </span>
           )}
         </div>
+        {noimDates.length > 0 && (
+          <div className="mt-4 text-xs text-slate-500">
+            <span className="font-medium text-slate-700">Tanggal tersimpan ({noimDates.length}): </span>
+            {noimDates.slice(0, 14).map((d) => `${d.date} (${d.count.toLocaleString('id-ID')})`).join(' · ')}
+            {noimDates.length > 14 ? ` · +${noimDates.length - 14} tanggal lainnya` : ''}
+          </div>
+        )}
         {noimError && (
           <div className="mt-4 text-sm bg-red-50 text-red-700 border border-red-200 rounded-md px-4 py-3">{noimError}</div>
         )}

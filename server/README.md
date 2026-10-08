@@ -76,6 +76,7 @@ di terminal lain (`npm run dev`), dan secara default sudah mengarah ke
   tanggal itu (kolom `data` bertipe JSON).
 - **eas_vswr_history** — riwayat summary EAS & VSWR Tracking, 1 baris per tanggal update
   (kolom `data` bertipe JSON berisi record lengkap). Dibuat otomatis saat server start.
+- **noim_sites** — data NOIM per tanggal (`snapshot_date`), PK `(snapshot_date, site_id)`. Upload ulang di tanggal yang sama hanya mengganti data tanggal itu. Tabel lama (tanpa tanggal) dimigrasi otomatis saat server start.
 - **site_master** — hasil import file Master Site Detail, dipakai untuk lookup Cluster
   & Site Name berdasarkan Site ID.
 
@@ -90,6 +91,10 @@ di terminal lain (`npm run dev`), dan secara default sudah mengarah ke
 | GET / POST | `/api/swfm/handled`, `/api/swfm/info`                | Baca / gabung data SWFM kumulatif                                                                                       |
 | POST       | `/api/swfm/merge`                                    | Gabung hasil SWFM Check baru + auto-purge ticket yang sudah ditangani                                                   |
 | GET / POST | `/api/daily-trend`                                   | Baca / tambah entry trend harian                                                                                        |
+| POST       | `/api/noim/replace`                                  | Simpan NOIM untuk satu tanggal (`snapshotDate`); data di tanggal yang sama diganti, tanggal lain tetap       |
+| GET        | `/api/noim?date=YYYY-MM-DD`                          | Data NOIM satu tanggal (tanpa `date` = tanggal terbaru)                                                          |
+| GET        | `/api/noim/dates`                                    | Daftar tanggal NOIM tersimpan + jumlah site                                                                      |
+| GET        | `/api/noim/trend`                                    | Per tanggal: jumlah site NOIM, INAP (Site Down), dan irisannya                                                   |
 | GET        | `/api/eas-vswr/history`                              | Semua riwayat summary EAS & VSWR, urut tanggal naik                                                                     |
 | PUT        | `/api/eas-vswr/history/:dateISO`                     | Simpan/timpa summary EAS & VSWR untuk satu tanggal (`YYYY-MM-DD`)                                                       |
 | POST       | `/api/site-master/import`                            | Import massal Master Site Detail                                                                                        |

@@ -3,7 +3,7 @@ import {
   DURATION_BUCKETS,
   bucketDuration,
   getRegionalTagFromValue,
-  normalizeRegionalCode,
+  getRegionalCodeForTag,
 } from './constants.js';
 
 // Site ID dibandingkan dalam bentuk dinormalisasi (trim + huruf besar) supaya
@@ -68,7 +68,7 @@ export function noimToViewRows(noimRows) {
       nop: r.nop || '',
       cluster: r.cluster || '',
       regional: regionalTag,
-      regionalCode: normalizeRegionalCode(r.regional),
+      regionalCode: getRegionalCodeForTag(regionalTag),
       siteClass: r.siteClass || '',
       siteType: '',
       alarmName: r.validasiRc || '',
@@ -108,5 +108,5 @@ export function computeSourceStats(inapRows, noimRows) {
   let both = 0;
   for (const id of inapSet) if (noimSet.has(id)) both++;
   const bcTime = (noimRows || []).find((r) => r.bcTime)?.bcTime || null;
-  return { inap: inapSet.size, noim: noimSet.size, both, bcTime };
+  return { inap: inapSet.size, noim: noimSet.size, both, notBoth: inapSet.size + noimSet.size - 2 * both, bcTime, inapSet };
 }

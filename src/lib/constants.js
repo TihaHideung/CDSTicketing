@@ -203,12 +203,15 @@ export function parseTicketKey(key) {
 }
 
 // ---------- NOIM (pembanding Site Down) ----------
+// Satu-satunya regional NOIM yang dipakai & disimpan (Regional 1). Baris regional lain dibuang.
+export const NOIM_REGIONAL = 'Sumbagut';
 export const NOIM_REQUIRED_HEADERS = ['Site ID', 'Start Time', 'Duration'];
 
 // Pilihan filter "Sumber Data" di Dashboard (hanya aktif kalau Tipe = Site Down).
 export const SOURCE_INAP = 'INAP';
 export const SOURCE_NOIM = 'NOIM';
-export const SOURCE_BOTH = 'ALL';
+export const SOURCE_BOTH = 'IRISAN'; // Site ID ada di INAP dan NOIM
+export const SOURCE_NOT_BOTH = 'NON_IRISAN'; // Site ID hanya ada di salah satunya (INAP saja atau NOIM saja)
 
 // Bucket Duration NOIM -> bucket Duration yang dipakai dashboard (DURATION_BUCKETS).
 export const NOIM_DURATION_MAP = {

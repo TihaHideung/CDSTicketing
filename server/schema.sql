@@ -179,11 +179,13 @@ CREATE TABLE IF NOT EXISTS eas_vswr_history (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- Data NOIM (snapshot site down versi NOIM) sebagai pembanding hasil validasi INAP+SWFM.
--- 1 baris per Site ID. Tiap upload NOIM baru MENGGANTI seluruh isi tabel ini (snapshot
--- terbaru, bukan kumulatif), supaya site yang sudah pulih tidak ikut jadi irisan palsu.
+-- Data NOIM (site down versi NOIM) sebagai pembanding hasil validasi INAP+SWFM.
+-- Disimpan PER TANGGAL (snapshot_date): 1 baris per (tanggal, Site ID). Upload ulang di
+-- tanggal yang sama hanya MENGGANTI data tanggal itu; tanggal lain tetap tersimpan,
+-- sehingga bisa dibuat trend irisan INAP & NOIM per tanggal.
 CREATE TABLE IF NOT EXISTS noim_sites (
-  site_id              VARCHAR(100) PRIMARY KEY,
+  snapshot_date        DATE NOT NULL,
+  site_id              VARCHAR(100) NOT NULL,
   regional             VARCHAR(50),
   rc_tier2             VARCHAR(150),
   rc_category          VARCHAR(150),
@@ -200,6 +202,8 @@ CREATE TABLE IF NOT EXISTS noim_sites (
   remark               TEXT,
   cat_tif              VARCHAR(100),
   uploaded_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (snapshot_date, site_id),
+  INDEX idx_noim_site (site_id),
   INDEX idx_noim_regional (regional),
   INDEX idx_noim_nop (nop),
   INDEX idx_noim_ticket (ticket)

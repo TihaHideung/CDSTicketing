@@ -8,7 +8,7 @@ import CellVsSiteDonut from './charts/CellVsSiteDonut.jsx';
 import AreaContributorBar from './charts/AreaContributorBar.jsx';
 import RcCategoryBar from './charts/RcCategoryBar.jsx';
 import TrendChart from './charts/TrendChart.jsx';
-import { REGIONS } from '../lib/constants.js';
+import { REGIONS, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, SOURCE_NOT_BOTH } from '../lib/constants.js';
 import { ALL_KEY } from './FilterBar.jsx';
 import { aggregateTrendByPeriod, aggregateTrendByRegionByPeriod } from '../lib/aggregate.js';
 import { exportElementsAsPdf } from '../lib/exportCharts.js';
@@ -142,8 +142,8 @@ export default function Dashboard({
   trendLogHasOlderData,
   regionalFilter,
   viewRows,
-  sourceMode = 'INAP',
-  sourceStats = null,
+  sourceMode = SOURCE_INAP,
+  trendSkippedDates = [],
   filters,
   onGoToUpload,
   onRowClick,
@@ -214,11 +214,13 @@ export default function Dashboard({
         <FilterBar {...filters} showDateFilter={false} />
         <div className="bg-white rounded-xl border border-slate-200 p-10 text-center">
           <p className="text-slate-500 mb-4">
-            {sourceMode === 'NOIM'
+            {sourceMode === SOURCE_NOIM
               ? 'Belum ada data NOIM untuk filter ini. Upload Data NOIM di halaman Upload, atau ganti Sumber Data.'
-              : sourceMode === 'ALL'
+              : sourceMode === SOURCE_BOTH
                 ? 'Tidak ada Site ID yang beririsan antara INAP dan NOIM untuk filter ini.'
-                : 'Belum ada data untuk filter ini.'}
+                : sourceMode === SOURCE_NOT_BOTH
+                  ? 'Tidak ada Site ID yang tidak beririsan antara INAP dan NOIM untuk filter ini.'
+                  : 'Belum ada data untuk filter ini.'}
           </p>
           <button onClick={onGoToUpload} className="px-4 py-2 rounded-md bg-brand-red text-white font-medium">
             Upload Data Sekarang
@@ -238,6 +240,8 @@ export default function Dashboard({
         hasGranularFilter={trendHasGranularFilter}
         logHasOlderData={trendLogHasOlderData}
         fixedPeriod={fixedPeriod}
+        sourceMode={sourceMode}
+        skippedDates={trendSkippedDates}
       />
     ) : (
       <TrendChart
@@ -245,12 +249,13 @@ export default function Dashboard({
         hasGranularFilter={trendHasGranularFilter}
         logHasOlderData={trendLogHasOlderData}
         fixedPeriod={fixedPeriod}
+        sourceMode={sourceMode}
+        skippedDates={trendSkippedDates}
       />
     );
   const trendSource = isAllRegional ? dailyTrendByRegion : dailyTrend;
-  const trendAvailable = sourceMode === 'INAP' && Array.isArray(trendSource) && trendSource.length > 0;
-  const trendUnavailableReason =
-    sourceMode !== 'INAP' ? 'Trend hanya tersedia untuk Sumber Data INAP.' : 'Belum ada data trend untuk filter ini.';
+  const trendAvailable = Array.isArray(trendSource) && trendSource.length > 0;
+  const trendUnavailableReason = 'Belum ada data trend untuk filter ini.';
 
   return (
     <div className="space-y-6">
@@ -268,29 +273,11 @@ export default function Dashboard({
       </div>
 
       <div ref={captureRef} className="space-y-6 bg-slate-50 p-1">
-        {sourceMode !== 'INAP' && sourceStats && (
-          <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-            <span className="font-semibold">
-              {sourceMode === 'NOIM' ? 'Menampilkan data NOIM' : 'Menampilkan irisan INAP & NOIM (data INAP yang Site ID-nya ada di NOIM)'}
-            </span>
-            <span className="ml-2 text-sky-800">
-              Site Down unik — INAP: {sourceStats.inap.toLocaleString('id-ID')} · NOIM: {sourceStats.noim.toLocaleString('id-ID')} · Irisan: {sourceStats.both.toLocaleString('id-ID')}
-              {sourceStats.bcTime ? ` · NOIM per ${new Date(sourceStats.bcTime).toLocaleString('id-ID')}` : ''}
-            </span>
-          </div>
-        )}
-
         <div data-export-id="kpi">
           <KpiCards summary={summary} removedStats={removedStats} />
         </div>
 
-        {sourceMode !== 'INAP' ? (
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
-            Trend harian hanya tersedia untuk Sumber Data INAP (histori harian tidak menyimpan Site ID, dan NOIM hanya snapshot terakhir).
-          </div>
-        ) : (
-          renderTrend()
-        )}
+        {renderTrend()}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div data-export-id="donut" className="[&>*]:h-full">

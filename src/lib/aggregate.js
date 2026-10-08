@@ -267,7 +267,7 @@ export function buildFilteredDailyTrend(dailyTrendLog, criteria = {}) {
   const result = [];
 
   for (const entry of dailyTrendLog) {
-    if (Array.isArray(entry?.breakdown) && entry.breakdown.length) {
+    if (Array.isArray(entry?.breakdown) && (entry.breakdown.length || entry.complete)) {
       let cellDown = 0;
       let siteDown = 0;
       for (const item of entry.breakdown) {
@@ -304,7 +304,7 @@ export function buildFilteredDailyTrendByRegion(dailyTrendLog, regions, criteria
   const result = [];
 
   for (const entry of dailyTrendLog) {
-    if (Array.isArray(entry?.breakdown) && entry.breakdown.length) {
+    if (Array.isArray(entry?.breakdown) && (entry.breakdown.length || entry.complete)) {
       const point = { date: entry.date };
       for (const reg of regions) point[reg] = 0;
       for (const item of entry.breakdown) {

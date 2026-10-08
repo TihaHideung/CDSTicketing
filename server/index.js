@@ -214,9 +214,13 @@ async function ensureSchema() {
   }
 
   try {
+    // NOIM disimpan per tanggal (snapshot_date) supaya bisa dibuat trend irisan INAP & NOIM.
+    // Primary key = (snapshot_date, site_id): upload ulang di tanggal yang sama hanya
+    // menggantikan data tanggal itu, tanggal lain tidak tersentuh.
     await pool.query(`
 CREATE TABLE IF NOT EXISTS noim_sites (
-  site_id              VARCHAR(100) PRIMARY KEY,
+  snapshot_date        DATE NOT NULL,
+  site_id              VARCHAR(100) NOT NULL,
   regional             VARCHAR(50),
   rc_tier2             VARCHAR(150),
   rc_category          VARCHAR(150),
@@ -233,14 +237,38 @@ CREATE TABLE IF NOT EXISTS noim_sites (
   remark               TEXT,
   cat_tif              VARCHAR(100),
   uploaded_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (snapshot_date, site_id),
+  INDEX idx_noim_site (site_id),
   INDEX idx_noim_regional (regional),
   INDEX idx_noim_nop (nop),
   INDEX idx_noim_ticket (ticket)
 ) ENGINE=InnoDB
     `);
-    console.log('Migrasi: tabel `noim_sites` siap dipakai untuk data pembanding NOIM.');
+
+    // Migrasi dari versi lama (tanpa snapshot_date, PK = site_id): data lama diberi
+    // tanggal dari uploaded_at-nya, lalu PK diganti jadi (snapshot_date, site_id).
+    const [cols] = await pool.query(
+      "SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'noim_sites' AND COLUMN_NAME = 'snapshot_date'"
+    );
+    if (!cols[0].c) {
+      await pool.query('ALTER TABLE noim_sites ADD COLUMN snapshot_date DATE NULL FIRST');
+      await pool.query('UPDATE noim_sites SET snapshot_date = DATE(COALESCE(uploaded_at, NOW())) WHERE snapshot_date IS NULL');
+      await pool.query('ALTER TABLE noim_sites MODIFY snapshot_date DATE NOT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (snapshot_date, site_id), ADD INDEX idx_noim_site (site_id)');
+      console.log('Migrasi: `noim_sites` diubah ke struktur per tanggal (snapshot_date).');
+    }
+    // Seragamkan regional data NOIM yang sudah tersimpan ("Regional 1" -> "Sumbagut", dst).
+    const [mig] = await pool.query(
+      `UPDATE noim_sites SET regional = CASE LOWER(REPLACE(TRIM(regional), ' ', ''))
+         WHEN 'regional1' THEN 'Sumbagut' WHEN 'regional2' THEN 'Sumbagsel' WHEN 'regional10' THEN 'Sumbagteng' END
+       WHERE LOWER(REPLACE(TRIM(regional), ' ', '')) IN ('regional1','regional2','regional10')`
+    );
+    if (mig.affectedRows) console.log(`Migrasi: ${mig.affectedRows} baris NOIM diseragamkan nama regionalnya.`);
+    // Data NOIM hanya Regional 1 (Sumbagut); buang sisa data regional lain yang sudah tersimpan.
+    const [purge] = await pool.query("DELETE FROM noim_sites WHERE regional <> 'Sumbagut' OR regional IS NULL");
+    if (purge.affectedRows) console.log(`Migrasi: ${purge.affectedRows} baris NOIM non-Regional 1 dibuang.`);
+    console.log('Migrasi: tabel `noim_sites` siap dipakai untuk data pembanding NOIM (per tanggal).');
   } catch (err) {
-    console.error('Gagal membuat noim_sites:', err.message);
+    console.error('Gagal membuat/migrasi noim_sites:', err.message);
   }
 
 }
@@ -910,7 +938,8 @@ app.get('/api/site-master/count', async (_req, res) => {
 });
 
 // ---------- NOIM (pembanding data Site Down INAP) ----------
-// Snapshot site down versi NOIM. Upload baru MENGGANTI seluruh isi tabel (bukan kumulatif).
+// Data NOIM disimpan per tanggal (snapshot_date). Upload di tanggal yang sama MENGGANTI
+// data tanggal itu saja; tanggal lain tetap tersimpan, jadi bisa dibuat trend per tanggal.
 
 function cleanText(v) {
   if (v == null) return null;
@@ -918,21 +947,54 @@ function cleanText(v) {
   return t === '' ? null : t;
 }
 
+// Regional di file NOIM ditulis "Regional 1/2/10"; disimpan sebagai nama regional
+// (Sumbagut/Sumbagsel/Sumbagteng) supaya seragam dengan data INAP dan filter regional.
+// Nilai yang tidak dikenali disimpan apa adanya.
+const NOIM_REGIONAL_LOOKUP = {
+  regional1: 'Sumbagut', regional2: 'Sumbagsel', regional10: 'Sumbagteng',
+  sumbagut: 'Sumbagut', sumbagsel: 'Sumbagsel', sumbagteng: 'Sumbagteng',
+  1: 'Sumbagut', 2: 'Sumbagsel', 10: 'Sumbagteng',
+};
+function normalizeNoimRegional(value) {
+  const raw = cleanText(value);
+  if (!raw) return null;
+  return NOIM_REGIONAL_LOOKUP[raw.toLowerCase().replace(/[^a-z0-9]/g, '')] || raw;
+}
+
+const NOIM_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isValidIsoDate(v) {
+  if (typeof v !== 'string' || !NOIM_DATE_RE.test(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
 app.post('/api/noim/replace', async (req, res) => {
-  const { rows } = req.body;
+  const { rows, snapshotDate } = req.body;
+  if (!isValidIsoDate(snapshotDate)) {
+    return res.status(400).json({ error: 'Tanggal data NOIM wajib diisi (format YYYY-MM-DD).' });
+  }
   if (!Array.isArray(rows) || rows.length === 0) {
     return res.status(400).json({ error: 'Tidak ada baris NOIM untuk disimpan.' });
+  }
+  // Pengaman di server: hanya Regional 1 (Sumbagut) yang disimpan.
+  const keptRows = rows.filter((r) => normalizeNoimRegional(r.regional) === 'Sumbagut');
+  if (keptRows.length === 0) {
+    return res.status(400).json({ error: 'Tidak ada baris Regional 1 untuk disimpan.' });
   }
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    await conn.query('DELETE FROM noim_sites');
+    const [existing] = await conn.query('SELECT COUNT(*) AS c FROM noim_sites WHERE snapshot_date = ?', [snapshotDate]);
+    const replaced = existing[0].c;
+    await conn.query('DELETE FROM noim_sites WHERE snapshot_date = ?', [snapshotDate]);
     const chunkSize = 300;
-    for (let i = 0; i < rows.length; i += chunkSize) {
-      const chunk = rows.slice(i, i + chunkSize);
+    for (let i = 0; i < keptRows.length; i += chunkSize) {
+      const chunk = keptRows.slice(i, i + chunkSize);
       const values = chunk.map((r) => [
+        snapshotDate,
         cleanText(r.siteId),
-        cleanText(r.regional),
+        normalizeNoimRegional(r.regional),
         cleanText(r.rcTier2),
         cleanText(r.rcCategory),
         r.startTime || null,
@@ -950,7 +1012,7 @@ app.post('/api/noim/replace', async (req, res) => {
       ]);
       await conn.query(
         `INSERT INTO noim_sites
-          (site_id, regional, rc_tier2, rc_category, start_time, responsible_party, nossa, bc_time,
+          (snapshot_date, site_id, regional, rc_tier2, rc_category, start_time, responsible_party, nossa, bc_time,
            duration, ticket, rc_tier1, nop, rc_category_validasi, validasi_rc, remark, cat_tif)
          VALUES ?
          ON DUPLICATE KEY UPDATE regional=VALUES(regional), rc_tier2=VALUES(rc_tier2),
@@ -963,8 +1025,8 @@ app.post('/api/noim/replace', async (req, res) => {
       );
     }
     await conn.commit();
-    const [cnt] = await pool.query('SELECT COUNT(*) AS c FROM noim_sites');
-    res.json({ imported: cnt[0].c });
+    const [cnt] = await pool.query('SELECT COUNT(*) AS c FROM noim_sites WHERE snapshot_date = ?', [snapshotDate]);
+    res.json({ imported: cnt[0].c, snapshotDate, replaced });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ error: err.message });
@@ -973,18 +1035,99 @@ app.post('/api/noim/replace', async (req, res) => {
   }
 });
 
-// Semua data NOIM + info Cluster/Site Name/Site Class dari site_master (kalau site-nya ada
-// di master), supaya filter Cluster & chart Site Class di dashboard ikut jalan untuk NOIM.
-app.get('/api/noim', async (_req, res) => {
+// Daftar tanggal NOIM yang tersimpan (terbaru dulu) + jumlah site per tanggal.
+app.get('/api/noim/dates', async (_req, res) => {
   try {
+    const [rows] = await pool.query(
+      `SELECT snapshot_date, COUNT(*) AS c, MAX(uploaded_at) AS uploaded_at
+         FROM noim_sites GROUP BY snapshot_date ORDER BY snapshot_date DESC`
+    );
+    res.json(rows.map((r) => ({ date: r.snapshot_date, count: r.c, uploadedAt: r.uploaded_at })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bahan trend Site Down per tanggal untuk Sumber Data NOIM / IRISAN / TIDAK IRISAN.
+// Hanya tanggal yang punya data NOIM yang dikembalikan. Per tanggal: baris NOIM (+ nop/cluster
+// dari site_master) dan baris Site Down INAP dari archive upload di tanggal yang sama.
+// Penyusunan breakdown & filter dilakukan di frontend (src/lib/siteDownTrend.js) supaya
+// aturan mapping RC/Duration NOIM sama persis dengan yang dipakai dashboard.
+app.get('/api/site-down/daily-sets', async (_req, res) => {
+  try {
+    const [noimRows] = await pool.query(
+      `SELECT n.snapshot_date, n.site_id, n.regional, n.duration, n.rc_category_validasi,
+              n.start_time, n.bc_time, COALESCE(NULLIF(n.nop, ''), m.nop) AS nop, m.cluster AS cluster
+         FROM noim_sites n
+         LEFT JOIN site_master m ON m.site_id = n.site_id`
+    );
+    const [inapRows] = await pool.query(
+      `SELECT upload_date, site_id, regional, nop, cluster, duration_bucket, rc, rc_sub
+         FROM ticket_archive_history
+        WHERE cat_alarm = 'SiteDown' AND site_id <> ''
+          AND upload_date IN (SELECT DISTINCT snapshot_date FROM noim_sites)`
+    );
+    const key = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+    const byDate = new Map();
+    const bucket = (d) => {
+      const k = key(d);
+      if (!byDate.has(k)) byDate.set(k, { date: k, noim: [], inap: [] });
+      return byDate.get(k);
+    };
+    for (const r of noimRows) {
+      bucket(r.snapshot_date).noim.push({
+        siteId: r.site_id,
+        regional: r.regional,
+        nop: r.nop || '',
+        cluster: r.cluster || '',
+        duration: r.duration,
+        rcCategoryValidasi: r.rc_category_validasi,
+        startTime: r.start_time,
+        bcTime: r.bc_time,
+      });
+    }
+    for (const r of inapRows) {
+      bucket(r.upload_date).inap.push({
+        siteId: r.site_id,
+        regional: r.regional,
+        nop: r.nop || '',
+        cluster: r.cluster || '',
+        duration: r.duration_bucket || '',
+        rc: r.rc || '',
+        rcSub: r.rc_sub || '',
+      });
+    }
+    res.json(Array.from(byDate.values()).sort((a, b) => (a.date > b.date ? 1 : -1)));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Data NOIM untuk satu tanggal (?date=YYYY-MM-DD; default = tanggal terbaru yang tersimpan)
+// + info Cluster/Site Name/Site Class dari site_master (kalau site-nya ada di master),
+// supaya filter Cluster & chart Site Class di dashboard ikut jalan untuk NOIM.
+app.get('/api/noim', async (req, res) => {
+  try {
+    let date = req.query.date;
+    if (date && !isValidIsoDate(date)) {
+      return res.status(400).json({ error: 'Format tanggal harus YYYY-MM-DD.' });
+    }
+    if (!date) {
+      const [[latest]] = await pool.query('SELECT MAX(snapshot_date) AS d FROM noim_sites');
+      date = latest?.d || null;
+    }
+    if (!date) return res.json([]);
     const [rows] = await pool.query(
       `SELECT n.*, m.site_name AS m_site_name, m.cluster AS m_cluster, m.site_class AS m_site_class,
               m.nop AS m_nop
          FROM noim_sites n
-         LEFT JOIN site_master m ON m.site_id = n.site_id`
+         LEFT JOIN site_master m ON m.site_id = n.site_id
+        WHERE n.snapshot_date = ?`,
+      [date]
     );
     res.json(
       rows.map((r) => ({
+        snapshotDate: r.snapshot_date,
         siteId: r.site_id,
         regional: r.regional,
         rcTier2: r.rc_tier2,

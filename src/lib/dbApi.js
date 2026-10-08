@@ -113,12 +113,25 @@ export async function saveEasVswrRecord(record) {
   });
 }
 
-export async function replaceNoim(rows) {
-  return apiFetch('/api/noim/replace', { method: 'POST', body: JSON.stringify({ rows }) });
+// Simpan data NOIM untuk satu tanggal. Data di tanggal yang sama diganti, tanggal lain aman.
+export async function replaceNoim(rows, snapshotDate) {
+  return apiFetch('/api/noim/replace', { method: 'POST', body: JSON.stringify({ rows, snapshotDate }) });
 }
 
-export async function getNoim() {
-  return apiFetch('/api/noim');
+// Data NOIM satu tanggal; tanpa `date` = tanggal terbaru yang tersimpan.
+export async function getNoim(date = null) {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  return apiFetch(`/api/noim${query}`);
+}
+
+// Daftar tanggal NOIM yang tersimpan: [{ date, count, uploadedAt }], terbaru dulu.
+export async function getNoimDates() {
+  return apiFetch('/api/noim/dates');
+}
+
+// Bahan trend Site Down per tanggal: [{ date, noim: [...], inap: [...] }] (hanya tanggal yang punya data NOIM).
+export async function getSiteDownDailySets() {
+  return apiFetch('/api/site-down/daily-sets');
 }
 
 export function todayKey(date = new Date()) {

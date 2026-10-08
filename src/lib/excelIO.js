@@ -8,6 +8,8 @@ import {
   MASTER_COLUMNS,
   MASTER_REQUIRED_HEADERS,
   NOIM_REQUIRED_HEADERS,
+  getRegionalTagFromValue,
+  NOIM_REGIONAL,
   HEADER_ALIASES,
   RC_CATEGORIES,
   PIC_OPTIONS,
@@ -216,15 +218,21 @@ export async function readNoimFile(file) {
   const bySite = new Map();
   let skippedNoSiteId = 0;
   let duplicates = 0;
+  let skippedOtherRegional = 0;
   for (const r of raw) {
     const siteId = cellText(r['Site ID']);
     if (!siteId) {
       skippedNoSiteId++;
       continue;
     }
+    // Data NOIM yang dipakai & disimpan hanya Regional 1 (Sumbagut); regional lain dibuang.
+    if (getRegionalTagFromValue(r['Regional']) !== NOIM_REGIONAL) {
+      skippedOtherRegional++;
+      continue;
+    }
     const row = {
       siteId,
-      regional: cellText(r['Regional']),
+      regional: NOIM_REGIONAL,
       rcTier2: cellText(r['RC Tier 2']),
       rcCategory: cellText(r['RC Category']),
       startTime: toSqlDateTime(r['Start Time']),
@@ -248,7 +256,7 @@ export async function readNoimFile(file) {
       if (row.startTime && (!existing.startTime || row.startTime < existing.startTime)) bySite.set(siteId, row);
     }
   }
-  return { rows: Array.from(bySite.values()), skippedNoSiteId, duplicates };
+  return { rows: Array.from(bySite.values()), skippedNoSiteId, duplicates, skippedOtherRegional };
 }
 
 export const RC_BULK_TEMPLATE_COLUMNS = [

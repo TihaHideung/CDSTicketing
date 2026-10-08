@@ -13,8 +13,9 @@ import { cleanMergedRows, matchAgainstSwfm, dedupeSiteDownBySiteId, validateRegi
 import { buildSwfmMaps } from './lib/swfmCheck.js';
 import { computeSummary, buildFilteredDailyTrend, buildFilteredDailyTrendByRegion } from './lib/aggregate.js';
 import { exportWorkbook } from './lib/exportExcel.js';
-import { REGIONS, MASTER_COLUMNS, matchesRegionalTag, RC_CATEGORIES, RC_STRUCTURE, PIC_OPTIONS, getSubcategoriesFor, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, DEFAULT_DURATION_FILTER, DEFAULT_SOURCE_FILTER } from './lib/constants.js';
+import { REGIONS, MASTER_COLUMNS, matchesRegionalTag, RC_CATEGORIES, RC_STRUCTURE, PIC_OPTIONS, getSubcategoriesFor, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, SOURCE_NOT_BOTH, DEFAULT_DURATION_FILTER, DEFAULT_SOURCE_FILTER } from './lib/constants.js';
 import { noimToViewRows, buildNoimSiteSet, normalizeSiteId, computeSourceStats } from './lib/noim.js';
+import { buildSourceTrendLog } from './lib/siteDownTrend.js';
 import {
   getActiveTickets,
   getArchiveHistory,
@@ -31,6 +32,8 @@ import {
   getSiteMasterCount,
   replaceNoim,
   getNoim,
+  getNoimDates,
+  getSiteDownDailySets,
 } from './lib/dbApi.js';
 
 // Halaman "Upload Data" dikunci password. Status "sudah buka password" disimpan di
@@ -105,13 +108,16 @@ export default function App() {
   const [noimMessage, setNoimMessage] = useState('');
   const [noimError, setNoimError] = useState('');
   const [noimRows, setNoimRows] = useState([]);
+  const [noimDate, setNoimDate] = useState(() => getUploadDateKey()); // tanggal data NOIM yang akan diupload
+  const [noimDates, setNoimDates] = useState([]); // tanggal NOIM yang tersimpan: [{date,count}]
+  const [siteDownDailySets, setSiteDownDailySets] = useState([]); // bahan trend NOIM/IRISAN/TIDAK IRISAN per tanggal
 
   const [allRows, setAllRows] = useState([]);
   const [regionalFilter, setRegionalFilter] = useState(ALL_KEY);
   const [nopFilter, setNopFilter] = useState(ALL_KEY);
   const [clusterFilter, setClusterFilter] = useState(ALL_KEY);
   const [categoryFilter, setCategoryFilter] = useState(ALL_KEY);
-  const [sourceFilter, setSourceFilter] = useState(DEFAULT_SOURCE_FILTER); // INAP | NOIM | ALL (hanya berlaku kalau Tipe = Site Down)
+  const [sourceFilter, setSourceFilter] = useState(DEFAULT_SOURCE_FILTER); // INAP | NOIM | IRISAN | NON_IRISAN (hanya berlaku kalau Tipe = Site Down)
   const [durationFilter, setDurationFilter] = useState(() => [...DEFAULT_DURATION_FILTER]); // array: bisa pilih beberapa Duration sekaligus
   const [rcFilter, setRcFilter] = useState(ALL_KEY);
   const [rcSubFilter, setRcSubFilter] = useState(ALL_KEY);
@@ -129,16 +135,21 @@ export default function App() {
     try {
       // Data NOIM dimuat terpisah & tidak boleh bikin seluruh refresh gagal kalau
       // endpoint-nya belum tersedia (mis. backend lama belum di-deploy ulang).
-      const [tickets, log, count, noim, latestUpload] = await Promise.all([
+      const [tickets, log, count, dates, latestUpload] = await Promise.all([
         getActiveTickets(),
         getDailyTrendLog(),
         getSiteMasterCount(),
-        getNoim().catch(() => []),
+        getNoimDates().catch(() => []),
         refreshUploadTimestamp ? getLatestInapUpload().catch(() => null) : Promise.resolve(null),
       ]);
+      const dateList = Array.isArray(dates) ? dates : [];
+      // Dashboard selalu memakai data NOIM aktif terbaru (tanggal upload paling baru).
+      const useDate = dateList[0]?.date || null;
+      const noim = useDate ? await getNoim(useDate).catch(() => []) : [];
       setAllRows(tickets);
       setDailyTrendLog(log);
       setMasterCount(count.count);
+      setNoimDates(dateList);
       setNoimRows(Array.isArray(noim) ? noim : []);
       if (refreshUploadTimestamp) setLastInapUploadAt(latestUpload?.lastUploadedAt || null);
       setLoadError('');
@@ -151,30 +162,50 @@ export default function App() {
     refreshAll();
   }, [refreshAll]);
 
-  // Filter "Sumber Data" cuma berlaku kalau Tipe = Site Down. Di luar itu selalu INAP.
   const sourceEnabled = categoryFilter === 'SiteDown';
   const effectiveSource = sourceEnabled ? sourceFilter : SOURCE_INAP;
+
+  // Bahan trend untuk Sumber Data NOIM / IRISAN / TIDAK IRISAN. Hanya diambil kalau sumber
+  // tersebut dipilih, dan diambil ulang setelah upload (daftar tanggal NOIM / data INAP berubah).
+  useEffect(() => {
+    if (!sourceEnabled || sourceFilter === SOURCE_INAP) return undefined;
+    let cancelled = false;
+    getSiteDownDailySets()
+      .then((rows) => !cancelled && setSiteDownDailySets(Array.isArray(rows) ? rows : []))
+      .catch(() => !cancelled && setSiteDownDailySets([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceEnabled, sourceFilter, noimDates, allRows]);
+
+  // Filter "Sumber Data" cuma berlaku kalau Tipe = Site Down. Di luar itu selalu INAP.
 
   const noimSiteSet = useMemo(() => buildNoimSiteSet(noimRows), [noimRows]);
   const noimViewRows = useMemo(() => noimToViewRows(noimRows), [noimRows]);
   const sourceStats = useMemo(() => computeSourceStats(allRows, noimRows), [allRows, noimRows]);
 
   const regionRows = useMemo(() => {
-    const base = effectiveSource === SOURCE_NOIM ? noimViewRows : allRows;
-    const rows =
+    const inRegion = (rows) =>
       regionalFilter === ALL_KEY
-        ? base
-        : base.filter((r) => matchesRegionalTag(r.regional, regionalFilter) || matchesRegionalTag(r.regionalCode, regionalFilter));
-    // NOIM: 1 baris = 1 Site ID, tidak perlu dedupe.
-    if (effectiveSource === SOURCE_NOIM) return rows;
+        ? rows
+        : rows.filter((r) => matchesRegionalTag(r.regional, regionalFilter) || matchesRegionalTag(r.regionalCode, regionalFilter));
 
-    const deduped = dedupeSiteDownBySiteId(rows);
-    // ALL: hanya Site Down yang Site ID-nya ada di INAP DAN NOIM (data yang tampil tetap data INAP).
+    // NOIM: 1 baris = 1 Site ID, tidak perlu dedupe.
+    if (effectiveSource === SOURCE_NOIM) return inRegion(noimViewRows);
+
+    const deduped = dedupeSiteDownBySiteId(inRegion(allRows));
+    // IRISAN: hanya Site Down yang Site ID-nya ada di INAP DAN NOIM (data yang tampil tetap data INAP).
     if (effectiveSource === SOURCE_BOTH) {
       return deduped.filter((r) => r.catAlarm === 'SiteDown' && noimSiteSet.has(normalizeSiteId(r.siteId)));
     }
+    // TIDAK IRISAN: Site Down INAP yang tidak ada di NOIM + site NOIM yang tidak ada di INAP.
+    if (effectiveSource === SOURCE_NOT_BOTH) {
+      const inapOnly = deduped.filter((r) => r.catAlarm === 'SiteDown' && !noimSiteSet.has(normalizeSiteId(r.siteId)));
+      const noimOnly = inRegion(noimViewRows).filter((r) => !sourceStats.inapSet.has(normalizeSiteId(r.siteId)));
+      return [...inapOnly, ...noimOnly];
+    }
     return deduped;
-  }, [allRows, noimViewRows, noimSiteSet, effectiveSource, regionalFilter]);
+  }, [allRows, noimViewRows, noimSiteSet, sourceStats, effectiveSource, regionalFilter]);
 
   const nopOptions = useMemo(() => Array.from(new Set(regionRows.map((r) => r.nop).filter(Boolean))).sort(), [regionRows]);
   const clusterOptions = useMemo(() => {
@@ -227,19 +258,27 @@ export default function App() {
     [regionalFilter, nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter]
   );
 
+  // Trend memakai komponen yang sama untuk semua Sumber Data; yang beda hanya log sumbernya:
+  // INAP = daily_trend (snapshot harian), selain itu disusun dari NOIM/archive per tanggal.
+  const sourceTrend = useMemo(
+    () => (effectiveSource === SOURCE_INAP ? null : buildSourceTrendLog(siteDownDailySets, effectiveSource)),
+    [siteDownDailySets, effectiveSource]
+  );
+  const activeTrendLog = sourceTrend ? sourceTrend.log : dailyTrendLog;
+  const trendSkippedDates = sourceTrend ? sourceTrend.skippedDates : [];
   const dailyTrend = useMemo(
-    () => buildFilteredDailyTrend(dailyTrendLog, trendCriteria),
-    [dailyTrendLog, trendCriteria]
+    () => buildFilteredDailyTrend(activeTrendLog, trendCriteria),
+    [activeTrendLog, trendCriteria]
   );
   const dailyTrendByRegion = useMemo(
-    () => buildFilteredDailyTrendByRegion(dailyTrendLog, REGIONS, trendCriteria),
-    [dailyTrendLog, trendCriteria]
+    () => buildFilteredDailyTrendByRegion(activeTrendLog, REGIONS, trendCriteria),
+    [activeTrendLog, trendCriteria]
   );
   const trendHasGranularFilter =
     Boolean(trendCriteria.nop || trendCriteria.cluster || trendCriteria.category) ||
     trendCriteria.duration.length > 0 ||
     Boolean(trendCriteria.rc || trendCriteria.rcSub || trendCriteria.rcUnset);
-  const trendLogHasOlderData = dailyTrendLog.length > 0;
+  const trendLogHasOlderData = activeTrendLog.length > 0;
 
   const handleRegionalChange = useCallback((val) => {
     setRegionalFilter(val);
@@ -347,29 +386,36 @@ export default function App() {
 
   const handleUploadNoim = useCallback(async () => {
     if (!noimFile) return;
+    if (!noimDate) {
+      setNoimError('Pilih dulu tanggal data NOIM ini.');
+      return;
+    }
     setNoimUploading(true);
     setNoimError('');
     setNoimMessage('');
     try {
-      const { rows, skippedNoSiteId, duplicates } = await readNoimFile(noimFile);
+      const { rows, skippedNoSiteId, duplicates, skippedOtherRegional } = await readNoimFile(noimFile);
       if (!rows.length) {
-        throw new Error('Tidak ada baris dengan Site ID di file NOIM ini, tidak ada yang disimpan.');
+        throw new Error('Tidak ada baris Regional 1 dengan Site ID di file NOIM ini, tidak ada yang disimpan.');
       }
-      const result = await replaceNoim(rows);
-      await refreshAll();
+      const result = await replaceNoim(rows, noimDate);
+      // Setelah upload, dashboard menampilkan tanggal yang baru diupload.
+      await refreshAll({ refreshUploadTimestamp: false });
       setNoimFile(null);
       const notes = [];
       if (skippedNoSiteId) notes.push(`${skippedNoSiteId} baris tanpa Site ID dilewati`);
+      if (skippedOtherRegional) notes.push(`${skippedOtherRegional.toLocaleString('id-ID')} baris regional selain Regional 1 dibuang`);
       if (duplicates) notes.push(`${duplicates} Site ID dobel digabung`);
+      if (result.replaced) notes.push(`menggantikan ${result.replaced.toLocaleString('id-ID')} site yang sebelumnya tersimpan di tanggal ini`);
       setNoimMessage(
-        `Data NOIM tersimpan: ${result.imported.toLocaleString('id-ID')} site.${notes.length ? ` (${notes.join(', ')})` : ''}`
+        `Data NOIM tanggal ${noimDate} tersimpan: ${result.imported.toLocaleString('id-ID')} site.${notes.length ? ` (${notes.join(', ')})` : ''}`
       );
     } catch (err) {
       setNoimError(err.message || String(err));
     } finally {
       setNoimUploading(false);
     }
-  }, [noimFile, refreshAll]);
+  }, [noimFile, noimDate, refreshAll]);
 
   const handleProcess = useCallback(async () => {
     setError('');
@@ -498,6 +544,11 @@ export default function App() {
     }
     if (effectiveSource === SOURCE_BOTH) {
       rows = rows.filter((r) => r.catAlarm === 'SiteDown' && noimSiteSet.has(normalizeSiteId(r.siteId)));
+    }
+    // TIDAK IRISAN: riwayat archive hanya berisi data INAP, jadi yang diexport sisi INAP-nya
+    // saja (Site Down yang Site ID-nya tidak ada di NOIM).
+    if (effectiveSource === SOURCE_NOT_BOTH) {
+      rows = rows.filter((r) => r.catAlarm === 'SiteDown' && !noimSiteSet.has(normalizeSiteId(r.siteId)));
     }
     if (nopFilter !== ALL_KEY) rows = rows.filter((r) => r.nop === nopFilter);
     if (clusterFilter !== ALL_KEY) rows = rows.filter((r) => r.cluster === clusterFilter);
@@ -695,6 +746,9 @@ export default function App() {
           onUploadNoim={handleUploadNoim}
           noimUploading={noimUploading}
           noimCount={noimSiteSet.size}
+          noimDate={noimDate}
+          onNoimDateChange={setNoimDate}
+          noimDates={noimDates}
           noimBcTime={sourceStats.bcTime}
           noimMessage={noimMessage}
           noimError={noimError}
@@ -713,7 +767,7 @@ export default function App() {
           regionalFilter={regionalFilter}
           viewRows={viewRows}
           sourceMode={effectiveSource}
-          sourceStats={sourceStats}
+          trendSkippedDates={trendSkippedDates}
           filters={filterProps}
           onGoToUpload={() => goToPage('upload')}
           onRowClick={(r) => r._source !== 'NOIM' && setSelectedTicketKey(r._key)}
@@ -770,7 +824,7 @@ export default function App() {
     return null;
   }, [
     active, mergeFile, swfmFile, masterFile, processing, progressMessage, error,
-    masterImporting, masterCount, noimFile, noimUploading, noimMessage, noimError, noimSiteSet, sourceStats, sourceFilter, effectiveSource, summary, removedStats, dailyTrend, dailyTrendByRegion,
+    masterImporting, masterCount, noimFile, noimUploading, noimMessage, noimError, noimSiteSet, noimDate, noimDates, trendSkippedDates, sourceStats, sourceFilter, effectiveSource, summary, removedStats, dailyTrend, dailyTrendByRegion,
     trendHasGranularFilter, trendLogHasOlderData, regionalFilter,
     nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, dateFrom, dateTo, nopOptions, clusterOptions, viewRows,
     handleProcess, handleExport, handleImportMaster, handleUploadNoim, handleCategoryChange, handleDownloadBulkRcTemplate, handleBulkRcUpload,

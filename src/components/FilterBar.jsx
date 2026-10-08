@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { REGIONS, RC_CATEGORIES, RC_UNDER_REVIEW, DURATION_BUCKETS, getSubcategoriesFor, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH } from '../lib/constants.js';
+import { REGIONS, RC_CATEGORIES, RC_UNDER_REVIEW, DURATION_BUCKETS, getSubcategoriesFor, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, SOURCE_NOT_BOTH } from '../lib/constants.js';
 
 export const ALL_KEY = 'ALL';
 export const UNSET_KEY = 'UNSET'; // representasi "(Belum diisi)" untuk filter RC
@@ -157,7 +157,8 @@ export default function FilterBar({
             >
               <option value={SOURCE_INAP}>INAP</option>
               <option value={SOURCE_NOIM}>NOIM</option>
-              <option value={SOURCE_BOTH}>ALL (irisan INAP &amp; NOIM)</option>
+              <option value={SOURCE_BOTH}>IRISAN (ada di INAP &amp; NOIM)</option>
+              <option value={SOURCE_NOT_BOTH}>TIDAK IRISAN (hanya di salah satu)</option>
             </select>
           </div>
         </div>
