@@ -44,7 +44,7 @@ PORT=4000
 
 > Kalau MySQL kamu jalan di `localhost` lewat unix socket dan user `root`-nya pakai
 > `auth_socket` (tanpa password), koneksi dari Node biasanya GAGAL ("Access denied ...
-> using password: NO"). Solusinya ya buat user terpisah dengan password seperti di ataas.
+> using password: NO"). Solusinya ya buat user terpisah dengan pasasword seperti di ataas.
 
 ## 3. Jalankan
 
