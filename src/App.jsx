@@ -15,7 +15,7 @@ import { computeSummary, buildFilteredDailyTrend, buildFilteredDailyTrendByRegio
 import { exportWorkbook } from './lib/exportExcel.js';
 import { REGIONS, MASTER_COLUMNS, matchesRegionalTag, RC_CATEGORIES, RC_STRUCTURE, PIC_OPTIONS, getSubcategoriesFor, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, SOURCE_NOT_BOTH, DEFAULT_DURATION_FILTER, DEFAULT_SOURCE_FILTER } from './lib/constants.js';
 import { noimToViewRows, buildNoimSiteSet, normalizeSiteId, computeSourceStats } from './lib/noim.js';
-import { buildSourceTrendLog } from './lib/SiteDownTrend.js';
+import { buildSourceTrendLog } from './lib/siteDownTrend.js';
 import {
   getActiveTickets,
   getArchiveHistory,
