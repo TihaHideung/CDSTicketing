@@ -9,7 +9,7 @@ import {
   MASTER_REQUIRED_HEADERS,
   NOIM_REQUIRED_HEADERS,
   getRegionalTagFromValue,
-  NOIM_REGIONAL,
+  NOIM_REGIONALS,
   HEADER_ALIASES,
   RC_CATEGORIES,
   PIC_OPTIONS,
@@ -225,14 +225,15 @@ export async function readNoimFile(file) {
       skippedNoSiteId++;
       continue;
     }
-    // Data NOIM yang dipakai & disimpan hanya Regional 1 (Sumbagut); regional lain dibuang.
-    if (getRegionalTagFromValue(r['Regional']) !== NOIM_REGIONAL) {
+    // Data NOIM yang dipakai & disimpan hanya Regional 1 / 2 / 10; regional lain dibuang.
+    const regionalTag = getRegionalTagFromValue(r['Regional']);
+    if (!NOIM_REGIONALS.includes(regionalTag)) {
       skippedOtherRegional++;
       continue;
     }
     const row = {
       siteId,
-      regional: NOIM_REGIONAL,
+      regional: regionalTag, // Regional 1 -> Sumbagut, 2 -> Sumbagsel, 10 -> Sumbagteng
       rcTier2: cellText(r['RC Tier 2']),
       rcCategory: cellText(r['RC Category']),
       startTime: toSqlDateTime(r['Start Time']),

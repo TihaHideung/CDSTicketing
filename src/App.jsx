@@ -396,7 +396,7 @@ export default function App() {
     try {
       const { rows, skippedNoSiteId, duplicates, skippedOtherRegional } = await readNoimFile(noimFile);
       if (!rows.length) {
-        throw new Error('Tidak ada baris Regional 1 dengan Site ID di file NOIM ini, tidak ada yang disimpan.');
+        throw new Error('Tidak ada baris Regional 1 / 2 / 10 dengan Site ID di file NOIM ini, tidak ada yang disimpan.');
       }
       const result = await replaceNoim(rows, noimDate);
       // Setelah upload, dashboard menampilkan tanggal yang baru diupload.
@@ -404,7 +404,7 @@ export default function App() {
       setNoimFile(null);
       const notes = [];
       if (skippedNoSiteId) notes.push(`${skippedNoSiteId} baris tanpa Site ID dilewati`);
-      if (skippedOtherRegional) notes.push(`${skippedOtherRegional.toLocaleString('id-ID')} baris regional selain Regional 1 dibuang`);
+      if (skippedOtherRegional) notes.push(`${skippedOtherRegional.toLocaleString('id-ID')} baris di luar Regional 1 / 2 / 10 dibuang`);
       if (duplicates) notes.push(`${duplicates} Site ID dobel digabung`);
       if (result.replaced) notes.push(`menggantikan ${result.replaced.toLocaleString('id-ID')} site yang sebelumnya tersimpan di tanggal ini`);
       setNoimMessage(

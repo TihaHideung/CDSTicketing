@@ -203,8 +203,9 @@ export function parseTicketKey(key) {
 }
 
 // ---------- NOIM (pembanding Site Down) ----------
-// Satu-satunya regional NOIM yang dipakai & disimpan (Regional 1). Baris regional lain dibuang.
-export const NOIM_REGIONAL = 'Sumbagut';
+// Regional NOIM yang dipakai & disimpan: Regional 1 (Sumbagut), Regional 2 (Sumbagsel), Regional 10 (Sumbagteng).
+// Baris dengan regional lain dibuang.
+export const NOIM_REGIONALS = ['Sumbagut', 'Sumbagsel', 'Sumbagteng'];
 export const NOIM_REQUIRED_HEADERS = ['Site ID', 'Start Time', 'Duration'];
 
 // Pilihan filter "Sumber Data" di Dashboard (hanya aktif kalau Tipe = Site Down).

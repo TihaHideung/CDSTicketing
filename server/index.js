@@ -263,9 +263,11 @@ CREATE TABLE IF NOT EXISTS noim_sites (
        WHERE LOWER(REPLACE(TRIM(regional), ' ', '')) IN ('regional1','regional2','regional10')`
     );
     if (mig.affectedRows) console.log(`Migrasi: ${mig.affectedRows} baris NOIM diseragamkan nama regionalnya.`);
-    // Data NOIM hanya Regional 1 (Sumbagut); buang sisa data regional lain yang sudah tersimpan.
-    const [purge] = await pool.query("DELETE FROM noim_sites WHERE regional <> 'Sumbagut' OR regional IS NULL");
-    if (purge.affectedRows) console.log(`Migrasi: ${purge.affectedRows} baris NOIM non-Regional 1 dibuang.`);
+    // Data NOIM hanya Regional 1/2/10 (Sumbagut/Sumbagsel/Sumbagteng); buang regional lain yang sudah tersimpan.
+    const [purge] = await pool.query(
+      "DELETE FROM noim_sites WHERE regional IS NULL OR regional NOT IN ('Sumbagut', 'Sumbagsel', 'Sumbagteng')"
+    );
+    if (purge.affectedRows) console.log(`Migrasi: ${purge.affectedRows} baris NOIM di luar Regional 1/2/10 dibuang.`);
     console.log('Migrasi: tabel `noim_sites` siap dipakai untuk data pembanding NOIM (per tanggal).');
   } catch (err) {
     console.error('Gagal membuat/migrasi noim_sites:', err.message);
@@ -977,10 +979,11 @@ app.post('/api/noim/replace', async (req, res) => {
   if (!Array.isArray(rows) || rows.length === 0) {
     return res.status(400).json({ error: 'Tidak ada baris NOIM untuk disimpan.' });
   }
-  // Pengaman di server: hanya Regional 1 (Sumbagut) yang disimpan.
-  const keptRows = rows.filter((r) => normalizeNoimRegional(r.regional) === 'Sumbagut');
+  // Pengaman di server: hanya Regional 1 / 2 / 10 yang disimpan.
+  const NOIM_ALLOWED = new Set(['Sumbagut', 'Sumbagsel', 'Sumbagteng']);
+  const keptRows = rows.filter((r) => NOIM_ALLOWED.has(normalizeNoimRegional(r.regional)));
   if (keptRows.length === 0) {
-    return res.status(400).json({ error: 'Tidak ada baris Regional 1 untuk disimpan.' });
+    return res.status(400).json({ error: 'Tidak ada baris Regional 1 / 2 / 10 untuk disimpan.' });
   }
   const conn = await pool.getConnection();
   try {
