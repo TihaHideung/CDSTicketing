@@ -344,10 +344,6 @@ const MONTH_NAMES_ID = [
   'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
 ];
 
-function formatShortDate(d) {
-  return `${String(d.getDate()).padStart(2, '0')} ${MONTH_NAMES_ID[d.getMonth()]}`;
-}
-
 /**
  * Info minggu Weekly: 1 minggu = JUMAT s/d KAMIS (bukan Senin-Minggu).
  * Untuk sebuah tanggal, cari hari Jumat terakhir (termasuk hari itu sendiri bila Jumat)
@@ -372,6 +368,14 @@ function fridayWeekInfo(date) {
   return { start, end };
 }
 
+function getISOWeek(date) {
+  const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = (utcDate.getUTCDay() + 6) % 7;
+  utcDate.setUTCDate(utcDate.getUTCDate() - day + 3);
+  const firstThursday = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 4));
+  return 1 + Math.round((utcDate - firstThursday) / 604800000);
+}
+
 /**
  * Tentukan "grup periode" (key unik untuk pengelompokan) + label yang ditampilkan
  * untuk 1 tanggal (format 'YYYY-MM-DD'), sesuai periode yang dipilih user.
@@ -381,10 +385,10 @@ function getPeriodBucket(dateKey, period) {
   if (Number.isNaN(d.getTime())) return { key: dateKey, label: dateKey };
 
   if (period === 'weekly') {
-    const { start, end } = fridayWeekInfo(d);
+    const { start } = fridayWeekInfo(d);
     return {
       key: toDateKey(start),
-      label: `${formatShortDate(start)} - ${formatShortDate(end)}`,
+      label: `W${String(getISOWeek(start)).padStart(2, '0')}`,
     };
   }
   if (period === 'monthly') {
