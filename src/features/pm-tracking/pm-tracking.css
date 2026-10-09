@@ -1,0 +1,113 @@
+/* Tambahan khusus tabel PM Tracking. Dasar tampilannya memakai eas-vswr.css
+   (panel, tombol, dropzone, tabel progress), jadi halaman ini terlihat sama. */
+
+.pm-tracking .page {
+  max-width: 1480px;
+}
+
+.pm-tracking .pm-warning {
+  margin: 0 0 16px;
+}
+
+.pm-tracking .pmtable {
+  min-width: 1280px;
+  font-size: 12px;
+}
+
+.pm-tracking .pmtable thead th {
+  white-space: normal;
+  line-height: 1.25;
+  min-width: 58px;
+}
+
+.pm-tracking .pmtable__title {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--navy-dark);
+  background: #dbe5f6;
+  border-radius: 6px;
+}
+
+.pm-tracking .pmtable__num {
+  font-variant-numeric: tabular-nums;
+}
+
+.pm-tracking .pmtable__num--gap {
+  background: #fff2cc;
+  font-weight: 600;
+}
+
+.pm-tracking .pmtable tbody td.ptable__regional-label {
+  min-width: 96px;
+  color: #17202e;
+}
+
+.pm-tracking .pmtable .pmtable__regional-total td {
+  font-weight: 700;
+  color: #17202e;
+  background: inherit;
+}
+
+.pm-tracking .pmtable .pmtable__regional-total td:first-child {
+  text-align: left;
+}
+
+.pm-tracking .pmtable .pmtable__pct-total {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Blok ringkasan All Area (meniru baris 27-28 / 55-56 sheet Summary NOP) */
+.pm-tracking .pmtable .pmtable__spacer td {
+  border: none;
+  background: #fff;
+  padding: 5px;
+}
+
+.pm-tracking .pmtable .pmsum__head td {
+  background: #b4c6e7;
+  color: #17202e;
+  font-weight: 700;
+  white-space: normal;
+  line-height: 1.2;
+}
+
+.pm-tracking .pmtable td.pmsum__h--takeout {
+  background: #ffff00;
+}
+
+.pm-tracking .pmtable td.pmsum__h--newCount {
+  background: #ffff00;
+  color: #ff0000;
+}
+
+.pm-tracking .pmtable td.pmsum__h--assigned {
+  color: #ff0000;
+}
+
+.pm-tracking .pmtable .pmsum__row td {
+  background: #e7e6e6;
+  color: #2f5597;
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pm-tracking .pmtable td.pmsum__v--takeout,
+.pm-tracking .pmtable td.pmsum__v--newCount {
+  background: #ffff00;
+}
+
+.pm-tracking .pmtable td.pmsum__v--waiting,
+.pm-tracking .pmtable td.pmsum__v--waitingAmesty,
+.pm-tracking .pmtable td.pmsum__v--gap {
+  background: #ffff00;
+  color: #ff0000;
+}
+
+.pm-tracking .pmtable td.pmsum__v--closed {
+  background: #00b050;
+  color: #fff;
+}

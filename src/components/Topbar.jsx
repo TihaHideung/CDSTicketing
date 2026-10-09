@@ -5,6 +5,7 @@ const TITLES = {
   upload: 'Upload Data',
   tickets: 'Detail Ticket Active',
   'eas-vswr': 'EAS & VSWR Tracking',
+  'pm-tracking': 'PM Tracking',
 };
 
 function formatUploadTimestamp(value) {

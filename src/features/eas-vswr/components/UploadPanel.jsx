@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 
-function DropZone({ label, hint, file, onFile, accent }) {
+export function DropZone({ label, hint, file, onFile, accent }) {
   const [isDragging, setIsDragging] = useState(false)
 
   const handleDrop = useCallback(
@@ -32,6 +32,8 @@ function DropZone({ label, hint, file, onFile, accent }) {
         onChange={(e) => {
           const f = e.target.files?.[0]
           if (f) onFile(f)
+          // reset supaya memilih file yang sama lagi (mis. setelah Generate) tetap memicu onChange
+          e.target.value = ''
         }}
       />
       <div className="dropzone__icon">{file ? '✓' : '↑'}</div>

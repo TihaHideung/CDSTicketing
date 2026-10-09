@@ -150,13 +150,36 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
   gap: 20px;
-  align-items: start;
+  align-items: stretch;
+}
+
+/* Tinggi baris ditentukan card Upload; ringkasan mengikuti tinggi tersebut. */
+.eas-vswr .layout > .panel:last-child {
+  display: flex;
+  flex-direction: column;
+  contain: size;
+  min-height: 0;
+}
+
+.eas-vswr .layout > .panel:last-child .summary {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }
 
 @media (max-width: 860px) {
   .eas-vswr .layout {
       grid-template-columns: 1fr;
     }
+
+  /* satu kolom: tinggi tidak lagi dibagi dengan card Upload */
+  .eas-vswr .layout > .panel:last-child {
+    contain: none;
+  }
+
+  .eas-vswr .layout > .panel:last-child .summary {
+    max-height: 560px;
+  }
 }
 
 .eas-vswr .panel {

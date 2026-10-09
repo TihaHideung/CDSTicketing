@@ -114,6 +114,17 @@ export async function saveEasVswrRecord(record) {
   });
 }
 
+export async function getPmTrackingHistory() {
+  return apiFetch('/api/pm-tracking/history');
+}
+
+export async function savePmTrackingRecord(record) {
+  return apiFetch(`/api/pm-tracking/history/${encodeURIComponent(record.dateISO)}`, {
+    method: 'PUT',
+    body: JSON.stringify(record),
+  });
+}
+
 // Simpan data NOIM untuk satu tanggal. Data di tanggal yang sama diganti, tanggal lain aman.
 export async function replaceNoim(rows, snapshotDate) {
   return apiFetch('/api/noim/replace', { method: 'POST', body: JSON.stringify({ rows, snapshotDate }) });

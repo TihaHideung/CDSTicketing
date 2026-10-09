@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 
-export default function SummaryPanel({ summary, dateLabel }) {
+export default function SummaryPanel({ summary, dateLabel, placeholder }) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(async () => {
@@ -27,8 +27,8 @@ export default function SummaryPanel({ summary, dateLabel }) {
 
       {!summary && (
         <div className="placeholder">
-          Belum ada data untuk tanggal ini. Upload file EAS &amp; VSWR lalu
-          klik Generate Summary.
+          {placeholder ||
+            'Belum ada data untuk tanggal ini. Upload file EAS & VSWR lalu klik Generate Summary.'}
         </div>
       )}
 

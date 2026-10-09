@@ -208,3 +208,13 @@ CREATE TABLE IF NOT EXISTS noim_sites (
   INDEX idx_noim_nop (nop),
   INDEX idx_noim_ticket (ticket)
 ) ENGINE=InnoDB;
+
+-- Riwayat summary PM Tracking (PM Site & PM Genset): 1 baris per tanggal update. `data`
+-- berisi record lengkap (metrics Site & Genset, summaryText, data mentah file PM, generatedAt).
+-- Generate ulang di tanggal yang sama menimpa baris tanggal itu.
+CREATE TABLE IF NOT EXISTS pm_tracking_history (
+  date_iso   DATE PRIMARY KEY,
+  data       JSON NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

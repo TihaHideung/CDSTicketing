@@ -7,6 +7,7 @@ import TicketPreviewTable from './components/TicketPreviewTable.jsx';
 import TicketDetailModal from './components/TicketDetailModal.jsx';
 import PasswordGateModal from './components/PasswordGateModal.jsx';
 import EasVswrPage from './features/eas-vswr/EasVswrPage.jsx';
+import PmTrackingPage from './features/pm-tracking/PmTrackingPage.jsx';
 import FilterBar, { ALL_KEY, UNSET_KEY } from './components/FilterBar.jsx';
 import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readNoimFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
 import { cleanMergedRows, matchAgainstSwfm, dedupeSiteDownBySiteId, validateRegionalRows } from './lib/cleaning.js';
@@ -904,6 +905,9 @@ export default function App() {
     }
     if (active === 'eas-vswr') {
       return <EasVswrPage />;
+    }
+    if (active === 'pm-tracking') {
+      return <PmTrackingPage />;
     }
     return null;
   }, [

@@ -214,6 +214,20 @@ async function ensureSchema() {
   }
 
   try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pm_tracking_history (
+        date_iso   DATE PRIMARY KEY,
+        data       JSON NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB
+    `);
+    console.log('Migrasi: tabel `pm_tracking_history` siap dipakai untuk riwayat PM Tracking (Site & Genset).');
+  } catch (err) {
+    console.error('Gagal membuat pm_tracking_history:', err.message);
+  }
+
+  try {
     // NOIM disimpan per tanggal (snapshot_date) supaya bisa dibuat trend irisan INAP & NOIM.
     // Primary key = (snapshot_date, site_id): upload ulang di tanggal yang sama hanya
     // menggantikan data tanggal itu, tanggal lain tidak tersentuh.
@@ -927,6 +941,45 @@ app.put('/api/eas-vswr/history/:dateISO', async (req, res) => {
       [dateISO, JSON.stringify(toSave)]
     );
     res.json(toSave);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- PM Tracking (riwayat summary PM Site & Genset per tanggal) ----------
+// 1 baris per tanggal update. Kolom `data` menyimpan satu record lengkap hasil generate
+// (metrics Site & Genset, summaryText, data mentah file PM Site/Genset, generatedAt).
+
+function parsePmTrackingRow(r) {
+  const payload = typeof r.data === 'string' ? JSON.parse(r.data) : r.data || {};
+  return { ...payload, dateISO: r.date_iso };
+}
+
+app.get('/api/pm-tracking/history', async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT date_iso, data FROM pm_tracking_history ORDER BY date_iso ASC');
+    res.json(rows.map(parsePmTrackingRow));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/pm-tracking/history/:dateISO', async (req, res) => {
+  const { dateISO } = req.params;
+  if (!ISO_DATE_RE.test(dateISO)) {
+    return res.status(400).json({ error: 'Format tanggal harus YYYY-MM-DD.' });
+  }
+  const record = req.body;
+  if (!record || typeof record !== 'object' || !record.metrics?.site || !record.metrics?.genset || !record.summaryText) {
+    return res.status(400).json({ error: 'Data summary PM Tracking tidak valid.' });
+  }
+  try {
+    const toSave = { ...record, dateISO };
+    await pool.query(
+      'INSERT INTO pm_tracking_history (date_iso, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data=VALUES(data)',
+      [dateISO, JSON.stringify(toSave)]
+    );
+    res.json({ dateISO, ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
