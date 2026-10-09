@@ -110,4 +110,4 @@ Dashboard tetap kondisi terkini. Upload ulang di tanggal itu mengganti riwayat r
 Semua endpoint ini sudah diuji langsung (bukan cuma ditulis) terhadap instance
 MySQL/MariaDB nyata, termasuk skenario: import 20 ribuan baris master site, upload 3
 regional berurutan (memastikan tidak saling menimpa), edit ticket lalu upload ulang
-(memastikan editan tidak hilang), dan auto-purge saat SWFM match.
+(memastikan editan tidak hilang), dan auto-purge saaat SWFM match.
