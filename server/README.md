@@ -86,6 +86,12 @@ di terminal lain (`npm run dev`), dan secara default sudah mengarah ke
 | ---------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | GET        | `/api/active-tickets`                                | Semua ticket aktif                                                                                                      |
 | POST       | `/api/active-tickets/upsert`                         | Upsert banyak ticket sekaligus (mempertahankan RC/Detail/Action Plan yang sudah diisi petugas)                          |
+
+Body opsional `uploadDate` (`YYYY-MM-DD`, default hari ini WIB) dan `historicalOnly` (default `false`). Dengan
+`historicalOnly: true` (upload **tanggal pilihan** untuk hari yang terlewat; tanggal harus sebelum hari ini) data hanya
+ditulis ke `ticket_archive_history` + `daily_trend` tanggal itu; `active_tickets` & `ticket_archive` tidak disentuh, jadi
+Dashboard tetap kondisi terkini. Upload ulang di tanggal itu mengganti riwayat regional yang ada di file saja.
+
 | PATCH      | `/api/active-tickets/:ticketKey`                     | Update RC/RC Sub/Detail/Action Plan satu ticket                                                                         |
 | GET        | `/api/archive-history?from=YYYY-MM-DD&to=YYYY-MM-DD` | Snapshot ticket archive dalam rentang tanggal upload (inklusif); parameter `date` tetap bisa dipakai untuk satu tanggal |
 | GET / POST | `/api/swfm/handled`, `/api/swfm/info`                | Baca / gabung data SWFM kumulatif                                                                                       |

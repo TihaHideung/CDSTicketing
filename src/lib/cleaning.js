@@ -7,9 +7,37 @@ import {
   getRegionalTagFromValue,
 } from './constants.js';
 
-function toDate(value) {
-  if (!value) return null;
-  if (value instanceof Date) return value;
+// "dd/mm/yyyy" atau "dd-mm-yyyy" / "dd.mm.yyyy", opsional jam "hh:mm" atau "hh:mm:ss".
+const DMY_RE = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})(?:[ T,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/;
+
+/**
+ * Ubah nilai sel jadi Date.
+ *
+ * Teks tanggal format Indonesia ("29/09/2026 05:12", umum di CSV export) TIDAK boleh diserahkan ke
+ * `new Date()`: JavaScript membacanya sebagai bulan/hari (mm/dd), sehingga "29/09/2026" jadi
+ * Invalid Date (null -> umur 0 -> semua ticket masuk Duration "<12H") dan "12/09/2026" jadi
+ * 9 Desember — salah tanpa error. Jadi pola dd/mm/yyyy dibaca manual; selain itu (ISO, Date asli
+ * dari sel tanggal Excel) tetap lewat jalur lama.
+ */
+export function toDate(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return null;
+    const m = DMY_RE.exec(text);
+    if (m) {
+      const day = Number(m[1]);
+      const month = Number(m[2]);
+      const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+      const d = new Date(year, month - 1, day, Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0));
+      // Tolak tanggal yang "meluap" (mis. 31/02 atau bulan 13) daripada diam-diam bergeser.
+      if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+      return d;
+    }
+    const d = new Date(text);
+    return isNaN(d.getTime()) ? null : d;
+  }
   const d = new Date(value);
   return isNaN(d.getTime()) ? null : d;
 }

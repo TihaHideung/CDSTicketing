@@ -48,6 +48,16 @@ export default function UploadPanel({
   onMergeFileChange,
   onSwfmFileChange,
   onProcess,
+  uploadDateMode = 'device',
+  onUploadDateModeChange,
+  uploadDate,
+  onUploadDateChange,
+  uploadTime = '23:59',
+  onUploadTimeChange,
+  todayDate,
+  maxCustomDate,
+  uploadedDates = [],
+  processMessage,
   processing,
   progressMessage,
   error,
@@ -78,6 +88,69 @@ export default function UploadPanel({
           Upload file data harian untuk regional yang dipilih.
         </p>
 
+        <fieldset className="mb-4">
+          <legend className="text-sm font-medium text-slate-800 mb-2">Tanggal upload</legend>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+              <input
+                type="radio"
+                name="upload-date-mode"
+                checked={uploadDateMode === 'device'}
+                onChange={() => onUploadDateModeChange('device')}
+              />
+              Waktu perangkat <span className="text-slate-400">(hari ini{todayDate ? `: ${todayDate}` : ''})</span>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer flex-wrap">
+              <input
+                type="radio"
+                name="upload-date-mode"
+                checked={uploadDateMode === 'custom'}
+                onChange={() => onUploadDateModeChange('custom')}
+              />
+              Pilih tanggal dan jam snapshot
+              <input
+                type="date"
+                aria-label="Tanggal upload"
+                value={uploadDate || ''}
+                max={maxCustomDate}
+                disabled={uploadDateMode !== 'custom'}
+                onChange={(e) => onUploadDateChange(e.target.value)}
+                className="rounded-md border border-slate-300 px-3 py-1 text-sm disabled:opacity-40 disabled:bg-slate-50"
+              />
+              <input
+                type="time"
+                aria-label="Jam snapshot upload"
+                value={uploadTime}
+                step="60"
+                disabled={uploadDateMode !== 'custom'}
+                onChange={(e) => onUploadTimeChange(e.target.value)}
+                className="rounded-md border border-slate-300 px-3 py-1 text-sm disabled:opacity-40 disabled:bg-slate-50"
+              />
+            </label>
+          </div>
+          {uploadDateMode === 'custom' && (
+            <p className="mt-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+              Untuk mengisi hari yang terlewat. Data disimpan ke <span className="font-medium">riwayat &amp; trend</span> tanggal
+              yang dipilih; <span className="font-medium">data aktif dan Dashboard tidak diubah</span> (hanya berubah lewat
+              &ldquo;Waktu perangkat&rdquo;). Duration dihitung sampai akhir menit snapshot yang dipilih (WIB).{' '}
+              <span className="font-medium">SWFM yang dipakai hanya file yang kamu upload di sini</span>, bukan SWFM yang
+              tersimpan di database (isinya kondisi terkini), jadi hasilnya seperti kondisi pada tanggal tersebut. File SWFM
+              ini tidak disimpan.
+            </p>
+          )}
+          {uploadDateMode === 'custom' && !swfmFile && (
+            <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              Belum ada file SWFM: semua ticket di file Merge akan dihitung belum selesai. Upload file SWFM tanggal tersebut
+              di kotak SWFM di bawah agar ticket yang sudah selesai pada tanggal itu ikut keluar.
+            </p>
+          )}
+          {uploadDateMode === 'custom' && uploadDate && uploadedDates.includes(uploadDate) && (
+            <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              Tanggal ini sudah punya data. Regional yang ada di file akan menggantikan riwayat regional itu di tanggal ini.
+            </p>
+          )}
+        </fieldset>
+
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FileSlot
@@ -99,10 +172,15 @@ export default function UploadPanel({
             {error}
           </div>
         )}
+        {processMessage && (
+          <div className="mt-4 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md px-4 py-3">
+            {processMessage}
+          </div>
+        )}
 
         <div className="mt-6 flex items-center gap-4">
           <button
-            disabled={!mergeFile || processing}
+            disabled={!mergeFile || (uploadDateMode === 'custom' && !uploadDate) || processing}
             onClick={onProcess}
             className="px-5 py-2.5 rounded-md bg-brand-red text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-700"
           >

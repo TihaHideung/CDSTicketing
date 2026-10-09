@@ -121,11 +121,15 @@ function isCsvFile(file) {
  * proses baca file besar jauh lebih cepat (teruji: dari sempat >3 menit/gagal jadi
  * hitungan puluhan detik).
  */
-async function readWorkbook(file, { wantDates = true } = {}) {
+async function readWorkbook(file, { wantDates = true, csvAsText = false } = {}) {
   const buffer = await file.arrayBuffer();
 
   if (isCsvFile(file)) {
     const text = new TextDecoder('utf-8').decode(buffer);
+    // csvAsText: semua sel CSV dibiarkan sebagai teks. Kalau tidak, SheetJS menebak teks mirip tanggal
+    // dengan urutan bulan/hari (US): "12/09/2026" jadi 9 Desember dan "29/09/2026" tetap teks, jadi
+    // hasilnya campur aduk. Teks aslinya diurai belakangan oleh toDate() (cleaning.js).
+    if (csvAsText) return XLSX.read(text, { type: 'string', raw: true, cellDates: false, dense: true });
     return XLSX.read(text, { type: 'string', raw: false, cellDates: wantDates, dense: true });
   }
 
@@ -140,7 +144,7 @@ function sheetToJsonFromHeaderRow(ws, headerRow) {
  * Baca file "Merge" (gabungan Cell Down + Site Down, satu file per regional).
  */
 export async function readMergeFile(file) {
-  const wb = await readWorkbook(file);
+  const wb = await readWorkbook(file, { csvAsText: true });
   const found = findDataSheet(wb, MERGE_REQUIRED_HEADERS);
   if (!found) {
     throw new Error(

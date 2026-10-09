@@ -101,6 +101,12 @@ export default function App() {
   const [progressMessage, setProgressMessage] = useState('');
   const [error, setError] = useState('');
   const [lastInapUploadAt, setLastInapUploadAt] = useState(null);
+  // Tanggal upload harian: 'device' = hari ini (waktu perangkat, alur biasa yang mengubah data aktif &
+  // Dashboard); 'custom' = tanggal pilihan sendiri untuk hari yang terlewat (hanya riwayat & trend).
+  const [uploadDateMode, setUploadDateMode] = useState('device');
+  const [uploadDate, setUploadDate] = useState('');
+  const [uploadTime, setUploadTime] = useState('23:59');
+  const [processMessage, setProcessMessage] = useState('');
   const [masterImporting, setMasterImporting] = useState(false);
   const [masterCount, setMasterCount] = useState(null);
   const [noimFile, setNoimFile] = useState(null);
@@ -417,13 +423,47 @@ export default function App() {
     }
   }, [noimFile, noimDate, refreshAll]);
 
+  function shiftDateKey(key, days) {
+    const d = new Date(`${key}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  const handleUploadDateModeChange = useCallback((mode) => {
+    setUploadDateMode(mode);
+    // Tanggal pilihan hanya boleh sebelum hari ini; beri default kemarin saat pertama dipilih.
+    if (mode === 'custom') setUploadDate((prev) => prev || shiftDateKey(getUploadDateKey(), -1));
+  }, []);
+
   const handleProcess = useCallback(async () => {
     setError('');
+    setProcessMessage('');
+
+    // 'device' = hari ini (alur biasa). 'custom' = tanggal pilihan -> historicalOnly: hanya riwayat
+    // & trend tanggal itu, data aktif / Dashboard / SWFM kumulatif TIDAK disentuh.
+    const todayKey = getUploadDateKey();
+    const historicalOnly = uploadDateMode === 'custom';
+    const dateKey = historicalOnly ? uploadDate : todayKey;
+    if (historicalOnly && !dateKey) {
+      setError('Pilih dulu tanggal upload.');
+      return;
+    }
+    if (historicalOnly && dateKey >= todayKey) {
+      setError('Tanggal pilihan harus sebelum hari ini. Untuk hari ini, pilih "Waktu perangkat".');
+      return;
+    }
+    if (historicalOnly && !uploadTime) {
+      setError('Pilih jam snapshot upload.');
+      return;
+    }
+
     setProcessing(true);
     setProgressMessage('Membaca file Merge...');
     await yieldToPaint();
     try {
-      const now = new Date();
+      // Umur ticket (Duration) dihitung terhadap waktu data tsb "diupload". Hari ini = sekarang;
+      // tanggal pilihan = akhir menit snapshot yang dipilih, dalam WIB.
+      const now = historicalOnly ? new Date(`${dateKey}T${uploadTime}:59+07:00`) : new Date();
 
       const mergeRaw = await readMergeFile(mergeFile);
 
@@ -456,27 +496,61 @@ export default function App() {
         const swfmRaw = await readSwfmCheckFile(swfmFile);
         swfmResult = buildSwfmMaps(swfmRaw);
 
-        setProgressMessage('Menggabungkan hasil SWFM ke database (+ auto-purge ticket selesai)...');
-        await mergeSwfm(swfmResult.handledMap, swfmResult.infoMap);
+        if (historicalOnly) {
+          // mergeSwfm menulis ke SWFM kumulatif (global) DAN menghapus ticket aktif yang selesai,
+          // jadi tidak boleh dipanggil untuk upload tanggal pilihan. File SWFM dipakai di memori saja.
+          setProgressMessage('File SWFM dipakai hanya untuk data tanggal ini (tidak disimpan ke database).');
+        } else {
+          setProgressMessage('Menggabungkan hasil SWFM ke database (+ auto-purge ticket selesai)...');
+          await mergeSwfm(swfmResult.handledMap, swfmResult.infoMap);
+        }
+      } else if (historicalOnly) {
+        setProgressMessage('Tanpa file SWFM: semua ticket di file Merge dihitung belum selesai.');
       } else {
         setProgressMessage('Tidak ada SWFM baru; memakai data validasi yang sudah tersimpan di database.');
       }
 
-      const cumulativeHandled = await getSwfmHandledMap();
-      const cumulativeInfo = await getSwfmInfoMap();
+      // Upload tanggal pilihan = "kembali ke tanggal itu": SWFM yang dipakai HANYA file yang diupload
+      // sekarang. SWFM yang tersimpan di database tidak boleh ikut, karena isinya kondisi terkini
+      // (dari sudut pandang tanggal itu, itu masa depan: ticket yang baru selesai setelahnya ikut
+      // tersaring). Tanpa file SWFM -> tidak ada penyaringan SWFM sama sekali.
+      // Upload waktu perangkat tetap memakai SWFM kumulatif di database seperti biasa.
+      const cumulativeHandled = historicalOnly ? swfmResult.handledMap : await getSwfmHandledMap();
+      const cumulativeInfo = historicalOnly ? swfmResult.infoMap : await getSwfmInfoMap();
 
-      setProgressMessage('Mencocokkan Ticket ID dengan SWFM (kumulatif)...');
+      setProgressMessage(
+        historicalOnly ? 'Mencocokkan Ticket ID dengan file SWFM yang diupload...' : 'Mencocokkan Ticket ID dengan SWFM (kumulatif)...'
+      );
       const { stillActive, removedHandled } = matchAgainstSwfm(cleaned, cumulativeHandled, cumulativeInfo);
 
       setProgressMessage('Menyimpan snapshot upload terbaru ke archive dan trend harian...');
-      const uploadDateKey = getUploadDateKey();
+      const uploadDateKey = dateKey;
       await upsertActiveTickets(
         stillActive.map((r) => ({
           ...r,
           uploadDate: uploadDateKey,
         })),
-        uploadDateKey
+        uploadDateKey,
+        historicalOnly
       );
+
+      // Upload tanggal pilihan: muat ulang trend (supaya tanggalnya muncul) tapi biarkan
+      // Dashboard, filter, dan "Last data uploaded at" apa adanya; tetap di halaman Upload.
+      // Mode & tanggal tidak di-reset (mengisi beberapa tanggal/regional berurutan lebih mudah, dan
+      // file berikutnya tidak bisa tidak sengaja menimpa data aktif).
+      if (historicalOnly) {
+        await refreshAll({ refreshUploadTimestamp: false });
+        setMergeFile(null);
+        setSwfmFile(null);
+        setProcessMessage(
+          `Data tanggal ${dateKey} pukul ${uploadTime} WIB tersimpan ke riwayat & trend (${stillActive.length.toLocaleString('id-ID')} ticket). ` +
+            (swfmFile
+              ? `${removedHandled.toLocaleString('id-ID')} ticket dikeluarkan karena sudah selesai di file SWFM yang diupload. `
+              : 'Tanpa file SWFM, tidak ada ticket yang dikeluarkan. ') +
+            'Data aktif dan Dashboard tidak diubah.'
+        );
+        return;
+      }
 
       setLastInapUploadAt(new Date());
       await refreshAll({ refreshUploadTimestamp: false });
@@ -504,7 +578,7 @@ export default function App() {
       setProcessing(false);
       setProgressMessage('');
     }
-  }, [mergeFile, swfmFile, refreshAll]);
+  }, [mergeFile, swfmFile, uploadDateMode, uploadDate, uploadTime, refreshAll]);
 
   const handleExport = useCallback(async ({ uploadDateFrom, uploadDateTo }) => {
     if (effectiveSource === SOURCE_NOIM) {
@@ -733,6 +807,16 @@ export default function App() {
           onMergeFileChange={setMergeFile}
           onSwfmFileChange={setSwfmFile}
           onProcess={handleProcess}
+          uploadDateMode={uploadDateMode}
+          onUploadDateModeChange={handleUploadDateModeChange}
+          uploadDate={uploadDate}
+          onUploadDateChange={setUploadDate}
+          uploadTime={uploadTime}
+          onUploadTimeChange={setUploadTime}
+          todayDate={getUploadDateKey()}
+          maxCustomDate={shiftDateKey(getUploadDateKey(), -1)}
+          uploadedDates={dailyTrendLog.map((d) => String(d.date).slice(0, 10))}
+          processMessage={processMessage}
           processing={processing}
           progressMessage={progressMessage}
           error={error}
@@ -823,11 +907,11 @@ export default function App() {
     }
     return null;
   }, [
-    active, mergeFile, swfmFile, masterFile, processing, progressMessage, error,
+    active, mergeFile, swfmFile, masterFile, processing, progressMessage, error, uploadDateMode, uploadDate, processMessage, dailyTrendLog,
     masterImporting, masterCount, noimFile, noimUploading, noimMessage, noimError, noimSiteSet, noimDate, noimDates, trendSkippedDates, sourceStats, sourceFilter, effectiveSource, summary, removedStats, dailyTrend, dailyTrendByRegion,
     trendHasGranularFilter, trendLogHasOlderData, regionalFilter,
     nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, dateFrom, dateTo, nopOptions, clusterOptions, viewRows,
-    handleProcess, handleExport, handleImportMaster, handleUploadNoim, handleCategoryChange, handleDownloadBulkRcTemplate, handleBulkRcUpload,
+    handleProcess, handleUploadDateModeChange, handleExport, handleImportMaster, handleUploadNoim, handleCategoryChange, handleDownloadBulkRcTemplate, handleBulkRcUpload,
   ]);
 
   return (

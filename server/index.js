@@ -480,8 +480,24 @@ app.get('/api/active-tickets', async (_req, res) => {
 });
 
 app.post('/api/active-tickets/upsert', async (req, res) => {
-  const { rows, uploadDate } = req.body;
+  const { rows, uploadDate, historicalOnly = false } = req.body;
   if (!Array.isArray(rows) || rows.length === 0) return res.json({ upserted: 0, trendDate: null });
+
+  // `historicalOnly` = upload dengan TANGGAL PILIHAN (bukan waktu perangkat), untuk mengisi hari
+  // yang terlewat. Hanya menulis ke riwayat (`ticket_archive_history`) + trend tanggal itu.
+  // `active_tickets` & `ticket_archive` TIDAK disentuh, supaya data aktif & Dashboard tetap
+  // mencerminkan kondisi terkini dan hanya berubah lewat upload waktu perangkat (alur biasa).
+  if (historicalOnly) {
+    const todayKey = getJakartaDateKey();
+    if (!isValidIsoDate(uploadDate)) {
+      return res.status(400).json({ error: 'Tanggal upload tidak valid (format YYYY-MM-DD).' });
+    }
+    if (uploadDate >= todayKey) {
+      return res.status(400).json({
+        error: `Tanggal pilihan harus sebelum hari ini (${todayKey}). Untuk hari ini gunakan "Waktu perangkat".`,
+      });
+    }
+  }
 
   const snapshotDate = uploadDate || getJakartaDateKey();
 
@@ -553,7 +569,7 @@ app.post('/api/active-tickets/upsert', async (req, res) => {
       duration_bucket: r.duration || r.duration_bucket || '',
       swfm_match_status: r.swfmMatchStatus || r.swfm_match_status || '',
       merged_ticket_ids: r.mergedTicketIds ? JSON.stringify(r.mergedTicketIds) : null,
-      upload_date: r.uploadDate || snapshotDate,
+      upload_date: historicalOnly ? snapshotDate : r.uploadDate || snapshotDate,
     });
     finalMap.set(key, merged);
   }
@@ -569,117 +585,120 @@ app.post('/api/active-tickets/upsert', async (req, res) => {
     .filter((r) => incomingRegionals.has(normalizeText(r.regional)))
     .map((r) => r.ticket_key);
   const removedKeys = archivedKeys.filter((key) => !finalMap.has(key));
+  const writeActive = !historicalOnly;
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    if (removedKeys.length) {
-      await conn.query('DELETE FROM ticket_archive WHERE ticket_key IN (?)', [removedKeys]);
-      await conn.query('DELETE FROM active_tickets WHERE ticket_key IN (?)', [removedKeys]);
+    // Data aktif & archive hanya diubah oleh upload waktu perangkat (bukan historicalOnly).
+    if (writeActive) {
+      if (removedKeys.length) {
+        await conn.query('DELETE FROM ticket_archive WHERE ticket_key IN (?)', [removedKeys]);
+        await conn.query('DELETE FROM active_tickets WHERE ticket_key IN (?)', [removedKeys]);
+      }
+
+      for (const row of finalMap.values()) {
+        const payload = {
+          ticket_key: row.ticket_key,
+          regional: row.regional || 'UNKNOWN',
+          ticket_id: row.ticket_id,
+          cat_alarm: row.cat_alarm || 'CellDown',
+          sub_type: row.sub_type || '',
+          site_id: row.site_id || '',
+          site_name: row.site_name || '',
+          nop: row.nop || '',
+          cluster: row.cluster || '',
+          regional_code: row.regional_code || '',
+          site_class: row.site_class || '',
+          site_type: row.site_type || '',
+          alarm_name: row.alarm_name || '',
+          alarm_group: row.alarm_group || '',
+          ems_name: row.ems_name || '',
+          clearance_status: row.clearance_status || '',
+          rc_category_auto: row.rc_category_auto || '',
+          rc: row.rc || '',
+          rc_sub: row.rc_sub || '',
+          pic: row.pic || '',
+          detail: row.detail || '',
+          action_plan: row.action_plan || '',
+          last_occurred_on: row.last_occurred_on ? new Date(row.last_occurred_on) : null,
+          age_hours: row.age_hours ?? null,
+          duration_bucket: row.duration_bucket || '',
+          swfm_match_status: row.swfm_match_status || '',
+          merged_ticket_ids: row.merged_ticket_ids || null,
+          upload_date: row.upload_date || snapshotDate,
+          edited_at: null,
+        };
+
+        await conn.query(
+          `INSERT INTO ticket_archive
+            (ticket_key, regional, ticket_id, cat_alarm, sub_type, site_id, site_name, nop, cluster,
+             regional_code, site_class, site_type, alarm_name, alarm_group, ems_name, clearance_status,
+             rc_category_auto, rc, rc_sub, pic, detail, action_plan, last_occurred_on, age_hours,
+             duration_bucket, swfm_match_status, merged_ticket_ids, upload_date, uploaded_at, edited_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
+           ON DUPLICATE KEY UPDATE
+             regional=VALUES(regional), ticket_id=VALUES(ticket_id), cat_alarm=VALUES(cat_alarm),
+             sub_type=VALUES(sub_type), site_id=VALUES(site_id), site_name=VALUES(site_name), nop=VALUES(nop),
+             cluster=VALUES(cluster), regional_code=VALUES(regional_code), site_class=VALUES(site_class),
+             site_type=VALUES(site_type), alarm_name=VALUES(alarm_name), alarm_group=VALUES(alarm_group),
+             ems_name=VALUES(ems_name), clearance_status=VALUES(clearance_status), rc_category_auto=VALUES(rc_category_auto),
+             rc=VALUES(rc), rc_sub=VALUES(rc_sub), pic=VALUES(pic), detail=VALUES(detail), action_plan=VALUES(action_plan),
+             last_occurred_on=VALUES(last_occurred_on), age_hours=VALUES(age_hours), duration_bucket=VALUES(duration_bucket),
+             swfm_match_status=VALUES(swfm_match_status), merged_ticket_ids=VALUES(merged_ticket_ids), upload_date=VALUES(upload_date),
+             edited_at=VALUES(edited_at)`,
+          [
+            payload.ticket_key, payload.regional, payload.ticket_id, payload.cat_alarm, payload.sub_type,
+            payload.site_id, payload.site_name, payload.nop, payload.cluster, payload.regional_code,
+            payload.site_class, payload.site_type, payload.alarm_name, payload.alarm_group, payload.ems_name,
+            payload.clearance_status, payload.rc_category_auto, payload.rc, payload.rc_sub, payload.pic,
+            payload.detail, payload.action_plan, payload.last_occurred_on, payload.age_hours,
+            payload.duration_bucket, payload.swfm_match_status, payload.merged_ticket_ids, payload.upload_date,
+            payload.edited_at,
+          ]
+        );
+
+        await conn.query(
+          `INSERT INTO active_tickets
+            (ticket_key, regional, ticket_id, cat_alarm, sub_type, site_id, site_name, nop, cluster,
+             regional_code, site_class, site_type, alarm_name, alarm_group, ems_name, clearance_status,
+             rc_category_auto, rc, rc_sub, pic, detail, action_plan, last_occurred_on, age_hours,
+             duration_bucket, swfm_match_status, merged_ticket_ids, upload_date, edited_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             cat_alarm=VALUES(cat_alarm), sub_type=VALUES(sub_type), site_id=VALUES(site_id),
+             site_name=VALUES(site_name), nop=VALUES(nop), cluster=VALUES(cluster),
+             regional_code=VALUES(regional_code), site_class=VALUES(site_class), site_type=VALUES(site_type),
+             alarm_name=VALUES(alarm_name), alarm_group=VALUES(alarm_group), ems_name=VALUES(ems_name),
+             clearance_status=VALUES(clearance_status), rc_category_auto=VALUES(rc_category_auto),
+             rc=VALUES(rc), rc_sub=VALUES(rc_sub), pic=VALUES(pic), detail=VALUES(detail), action_plan=VALUES(action_plan),
+             last_occurred_on=VALUES(last_occurred_on), age_hours=VALUES(age_hours),
+             duration_bucket=VALUES(duration_bucket), swfm_match_status=VALUES(swfm_match_status),
+             merged_ticket_ids=VALUES(merged_ticket_ids), upload_date=VALUES(upload_date), edited_at=VALUES(edited_at)`,
+          [
+            payload.ticket_key, payload.regional, payload.ticket_id, payload.cat_alarm, payload.sub_type,
+            payload.site_id, payload.site_name, payload.nop, payload.cluster, payload.regional_code,
+            payload.site_class, payload.site_type, payload.alarm_name, payload.alarm_group, payload.ems_name,
+            payload.clearance_status, payload.rc_category_auto, payload.rc, payload.rc_sub, payload.pic,
+            payload.detail, payload.action_plan, payload.last_occurred_on, payload.age_hours,
+            payload.duration_bucket, payload.swfm_match_status, payload.merged_ticket_ids, payload.upload_date,
+            payload.edited_at,
+          ]
+        );
+      }
     }
-
-    for (const row of finalMap.values()) {
-      const payload = {
-        ticket_key: row.ticket_key,
-        regional: row.regional || 'UNKNOWN',
-        ticket_id: row.ticket_id,
-        cat_alarm: row.cat_alarm || 'CellDown',
-        sub_type: row.sub_type || '',
-        site_id: row.site_id || '',
-        site_name: row.site_name || '',
-        nop: row.nop || '',
-        cluster: row.cluster || '',
-        regional_code: row.regional_code || '',
-        site_class: row.site_class || '',
-        site_type: row.site_type || '',
-        alarm_name: row.alarm_name || '',
-        alarm_group: row.alarm_group || '',
-        ems_name: row.ems_name || '',
-        clearance_status: row.clearance_status || '',
-        rc_category_auto: row.rc_category_auto || '',
-        rc: row.rc || '',
-        rc_sub: row.rc_sub || '',
-        pic: row.pic || '',
-        detail: row.detail || '',
-        action_plan: row.action_plan || '',
-        last_occurred_on: row.last_occurred_on ? new Date(row.last_occurred_on) : null,
-        age_hours: row.age_hours ?? null,
-        duration_bucket: row.duration_bucket || '',
-        swfm_match_status: row.swfm_match_status || '',
-        merged_ticket_ids: row.merged_ticket_ids || null,
-        upload_date: row.upload_date || snapshotDate,
-        edited_at: null,
-      };
-
-      await conn.query(
-        `INSERT INTO ticket_archive
-          (ticket_key, regional, ticket_id, cat_alarm, sub_type, site_id, site_name, nop, cluster,
-           regional_code, site_class, site_type, alarm_name, alarm_group, ems_name, clearance_status,
-           rc_category_auto, rc, rc_sub, pic, detail, action_plan, last_occurred_on, age_hours,
-           duration_bucket, swfm_match_status, merged_ticket_ids, upload_date, uploaded_at, edited_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
-         ON DUPLICATE KEY UPDATE
-           regional=VALUES(regional), ticket_id=VALUES(ticket_id), cat_alarm=VALUES(cat_alarm),
-           sub_type=VALUES(sub_type), site_id=VALUES(site_id), site_name=VALUES(site_name), nop=VALUES(nop),
-           cluster=VALUES(cluster), regional_code=VALUES(regional_code), site_class=VALUES(site_class),
-           site_type=VALUES(site_type), alarm_name=VALUES(alarm_name), alarm_group=VALUES(alarm_group),
-           ems_name=VALUES(ems_name), clearance_status=VALUES(clearance_status), rc_category_auto=VALUES(rc_category_auto),
-           rc=VALUES(rc), rc_sub=VALUES(rc_sub), pic=VALUES(pic), detail=VALUES(detail), action_plan=VALUES(action_plan),
-           last_occurred_on=VALUES(last_occurred_on), age_hours=VALUES(age_hours), duration_bucket=VALUES(duration_bucket),
-           swfm_match_status=VALUES(swfm_match_status), merged_ticket_ids=VALUES(merged_ticket_ids), upload_date=VALUES(upload_date),
-           edited_at=VALUES(edited_at)`,
-        [
-          payload.ticket_key, payload.regional, payload.ticket_id, payload.cat_alarm, payload.sub_type,
-          payload.site_id, payload.site_name, payload.nop, payload.cluster, payload.regional_code,
-          payload.site_class, payload.site_type, payload.alarm_name, payload.alarm_group, payload.ems_name,
-          payload.clearance_status, payload.rc_category_auto, payload.rc, payload.rc_sub, payload.pic,
-          payload.detail, payload.action_plan, payload.last_occurred_on, payload.age_hours,
-          payload.duration_bucket, payload.swfm_match_status, payload.merged_ticket_ids, payload.upload_date,
-          payload.edited_at,
-        ]
-      );
-
-      await conn.query(
-        `INSERT INTO active_tickets
-          (ticket_key, regional, ticket_id, cat_alarm, sub_type, site_id, site_name, nop, cluster,
-           regional_code, site_class, site_type, alarm_name, alarm_group, ems_name, clearance_status,
-           rc_category_auto, rc, rc_sub, pic, detail, action_plan, last_occurred_on, age_hours,
-           duration_bucket, swfm_match_status, merged_ticket_ids, upload_date, edited_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           cat_alarm=VALUES(cat_alarm), sub_type=VALUES(sub_type), site_id=VALUES(site_id),
-           site_name=VALUES(site_name), nop=VALUES(nop), cluster=VALUES(cluster),
-           regional_code=VALUES(regional_code), site_class=VALUES(site_class), site_type=VALUES(site_type),
-           alarm_name=VALUES(alarm_name), alarm_group=VALUES(alarm_group), ems_name=VALUES(ems_name),
-           clearance_status=VALUES(clearance_status), rc_category_auto=VALUES(rc_category_auto),
-           rc=VALUES(rc), rc_sub=VALUES(rc_sub), pic=VALUES(pic), detail=VALUES(detail), action_plan=VALUES(action_plan),
-           last_occurred_on=VALUES(last_occurred_on), age_hours=VALUES(age_hours),
-           duration_bucket=VALUES(duration_bucket), swfm_match_status=VALUES(swfm_match_status),
-           merged_ticket_ids=VALUES(merged_ticket_ids), upload_date=VALUES(upload_date), edited_at=VALUES(edited_at)`,
-        [
-          payload.ticket_key, payload.regional, payload.ticket_id, payload.cat_alarm, payload.sub_type,
-          payload.site_id, payload.site_name, payload.nop, payload.cluster, payload.regional_code,
-          payload.site_class, payload.site_type, payload.alarm_name, payload.alarm_group, payload.ems_name,
-          payload.clearance_status, payload.rc_category_auto, payload.rc, payload.rc_sub, payload.pic,
-          payload.detail, payload.action_plan, payload.last_occurred_on, payload.age_hours,
-          payload.duration_bucket, payload.swfm_match_status, payload.merged_ticket_ids, payload.upload_date,
-          payload.edited_at,
-        ]
-      );
-    }
-
-    // PENTING: ringkasan trend harian (`daily_trend`) HARUS dihitung dari SELURUH
-    // ticket aktif di semua regional yang ada di database saat ini — BUKAN cuma dari
-    // baris upload yang baru saja diproses (`finalMap`). Satu kali "Proses" cuma
-    // berisi 1 file/1 regional, jadi kalau snapshot-nya diambil dari `finalMap` saja,
-    // upload regional kedua di hari yang sama akan MENIMPA (replace) trend hari itu
-    // dengan angka regional kedua doang, menghilangkan kontribusi regional pertama
-    // dari grafik trend walau ticket-nya sendiri tetap aman di database.
-    const [allActiveRowsForTrend] = await conn.query('SELECT * FROM active_tickets');
-    const snapshotSummary = buildSnapshotSummary(allActiveRowsForTrend);
 
     const currentSnapshot = Array.from(finalMap.values());
+
+    // Upload ulang di tanggal pilihan = REPLACE riwayat regional di file ini pada tanggal itu
+    // saja; regional lain di tanggal yang sama tidak terganggu.
+    if (historicalOnly && incomingRegionals.size) {
+      await conn.query('DELETE FROM ticket_archive_history WHERE upload_date = ? AND regional IN (?)', [
+        snapshotDate,
+        Array.from(incomingRegionals),
+      ]);
+    }
 
     for (const row of currentSnapshot) {
       await conn.query(
@@ -711,13 +730,30 @@ app.post('/api/active-tickets/upsert', async (req, res) => {
       );
     }
 
+    // Ringkasan trend harian (`daily_trend`):
+    //  - Upload waktu perangkat: dihitung dari SELURUH ticket aktif di semua regional (bukan cuma
+    //    baris upload ini). Satu kali "Proses" cuma berisi 1 file/1 regional, jadi kalau diambil
+    //    dari `finalMap` saja, upload regional kedua di hari yang sama akan MENIMPA trend hari itu
+    //    dengan angka regional kedua doang.
+    //  - Tanggal pilihan (historicalOnly): dihitung dari riwayat tanggal itu (semua regional yang
+    //    sudah diupload untuk tanggal itu), BUKAN dari ticket aktif yang isinya kondisi terkini.
+    const [summaryRows] = historicalOnly
+      ? await conn.query('SELECT * FROM ticket_archive_history WHERE upload_date = ?', [snapshotDate])
+      : await conn.query('SELECT * FROM active_tickets');
+    const snapshotSummary = buildSnapshotSummary(summaryRows);
+
     await conn.query(
       'INSERT INTO daily_trend (trend_date, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data=VALUES(data)',
       [snapshotDate, JSON.stringify(snapshotSummary)]
     );
 
     await conn.commit();
-    res.json({ upserted: finalMap.size, trendDate: snapshotDate, archiveCount: finalMap.size });
+    res.json({
+      upserted: finalMap.size,
+      trendDate: snapshotDate,
+      archiveCount: finalMap.size,
+      mode: historicalOnly ? 'historical' : 'current',
+    });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ error: err.message });
@@ -801,7 +837,9 @@ app.post('/api/swfm/merge', async (req, res) => {
 
 app.get('/api/archive-history/latest-upload', async (_req, res) => {
   const [[row]] = await pool.query(
-    "SELECT DATE_FORMAT(MAX(uploaded_at), '%Y-%m-%d %H:%i:%s') AS lastUploadedAt FROM ticket_archive_history"
+    // Hanya upload dengan tanggal terbaru: mengisi tanggal lampau (upload tanggal pilihan) tidak
+    // boleh mengubah "Last data uploaded at", karena data aktif di Dashboard tidak berubah olehnya.
+    "SELECT DATE_FORMAT(MAX(uploaded_at), '%Y-%m-%d %H:%i:%s') AS lastUploadedAt FROM ticket_archive_history WHERE upload_date = (SELECT MAX(upload_date) FROM ticket_archive_history)"
   );
   res.json({ lastUploadedAt: row?.lastUploadedAt || null });
 });

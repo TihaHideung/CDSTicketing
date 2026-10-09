@@ -29,10 +29,11 @@ export async function getActiveTickets() {
  * apakah field rc/rcSub/detail/actionPlan perlu dipertahankan (kalau ticket-nya sudah
  * pernah ada & sudah diisi petugas sebelumnya).
  */
-export async function upsertActiveTickets(rows, uploadDate = null) {
+export async function upsertActiveTickets(rows, uploadDate = null, historicalOnly = false) {
   return apiFetch('/api/active-tickets/upsert', {
     method: 'POST',
-    body: JSON.stringify({ rows, uploadDate }),
+    // historicalOnly: upload tanggal pilihan -> hanya riwayat & trend, data aktif tidak disentuh.
+    body: JSON.stringify({ rows, uploadDate, historicalOnly }),
   });
 }
 
