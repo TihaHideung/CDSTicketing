@@ -160,10 +160,7 @@ export default function EasVswrPage() {
             error={error}
           />
 
-          <SummaryPanel
-            summary={selectedRecord?.summaryText}
-            dateLabel={selectedRecord?.dateLabel}
-          />
+          <SummaryPanel record={selectedRecord} />
         </div>
 
         <ProgressTable
@@ -177,3 +174,4 @@ export default function EasVswrPage() {
     </div>
   )
 }
+                                        

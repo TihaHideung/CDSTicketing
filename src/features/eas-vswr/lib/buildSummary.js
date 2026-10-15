@@ -31,11 +31,34 @@ function topBottom(entries, key) {
   return { topLines, bottomLines }
 }
 
-export function buildSummaryText(metrics, { dateLabel, areaLabel }) {
+export const SUMMARY_FOCUS = {
+  QUICKWIN: 'quickwin',
+  EXTENDED: 'extended',
+}
+
+/**
+ * focus = 'quickwin' (default, format lama) atau 'extended'.
+ * - quickwin: Per Regional memakai % EAS total, blok pertama = QUICKWIN.
+ * - extended: Per Regional memakai % Extended, blok pertama = EXTENDED,
+ *   dan baris Overall menampilkan Extended lebih dulu.
+ */
+export function buildSummaryText(
+  metrics,
+  { dateLabel, areaLabel, focus = SUMMARY_FOCUS.QUICKWIN }
+) {
   const { pctEASOverall, pctQuickwin, pctExtended, pctVSWR, regionalRows, nopScores } =
     metrics
+  const isExtended = focus === SUMMARY_FOCUS.EXTENDED
 
-  const regionalSorted = [...regionalRows].sort((a, b) => b.value - a.value)
+  // Extended: ambil % Extended per regional dari table (record lama tanpa
+  // table akan jatuh kembali ke % EAS total).
+  const tableRegionals = metrics.table?.regionals
+  const regionalSource =
+    isExtended && tableRegionals?.length
+      ? tableRegionals.map((r) => ({ regional: r.regional, value: r.extendedPct }))
+      : regionalRows
+
+  const regionalSorted = [...regionalSource].sort((a, b) => b.value - a.value)
   const regionalLines = regionalSorted.map((r, i) => {
     let dot = '🔵'
     let suffix = ''
@@ -50,7 +73,8 @@ export function buildSummaryText(metrics, { dateLabel, areaLabel }) {
   })
 
   const nopList = Object.values(nopScores)
-  const qw = topBottom(nopList, 'quickwinPct')
+  const focusKey = isExtended ? 'extendedPct' : 'quickwinPct'
+  const focusBlock = topBottom(nopList, focusKey)
   const vs = topBottom(nopList, 'vswrPct')
 
   const lines = []
@@ -59,18 +83,25 @@ export function buildSummaryText(metrics, { dateLabel, areaLabel }) {
   lines.push('')
   lines.push('Overall:')
   lines.push(`✅ Validasi EAS: ${fmt(pctEASOverall)}% closed`)
-  lines.push(`* Quickwin: ${fmt(pctQuickwin)}%`)
-  lines.push(`* Extended: ${fmt(pctExtended)}%`)
+  if (isExtended) {
+    lines.push(`* Extended: ${fmt(pctExtended)}%`)
+    lines.push(`* Quickwin: ${fmt(pctQuickwin)}%`)
+  } else {
+    lines.push(`* Quickwin: ${fmt(pctQuickwin)}%`)
+    lines.push(`* Extended: ${fmt(pctExtended)}%`)
+  }
   lines.push(`✅ VSWR Tracking: ${fmt(pctVSWR)}% closed`)
   lines.push('')
-  lines.push('Per Regional (Validasi EAS):')
+  lines.push(
+    isExtended ? 'Per Regional (Validasi EAS – Extended):' : 'Per Regional (Validasi EAS):'
+  )
   lines.push(...regionalLines)
   lines.push(DIVIDER)
-  lines.push('1️⃣ QUICKWIN')
+  lines.push(isExtended ? '1️⃣ EXTENDED' : '1️⃣ QUICKWIN')
   lines.push('🟢 Top 3 Tertinggi:')
-  lines.push(...qw.topLines)
+  lines.push(...focusBlock.topLines)
   lines.push('🔴 Top 3 Terendah:')
-  lines.push(...qw.bottomLines)
+  lines.push(...focusBlock.bottomLines)
   lines.push(DIVIDER)
   lines.push('2️⃣ VSWR TRACKING (% Closed)')
   lines.push('🟢 Top 3 Tertinggi:')

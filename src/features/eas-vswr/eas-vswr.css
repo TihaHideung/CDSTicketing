@@ -207,6 +207,13 @@
   flex-wrap: wrap;
 }
 
+.eas-vswr .summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .eas-vswr .panel__header-row .panel__title {
   margin: 0;
 }
@@ -992,3 +999,4 @@
 .eas-vswr .an-toggle:hover {
   text-decoration: underline;
 }
+  
