@@ -275,13 +275,41 @@ CREATE TABLE IF NOT EXISTS noim_sites (
     // Migrasi dari versi lama (tanpa snapshot_date, PK = site_id): data lama diberi
     // tanggal dari uploaded_at-nya, lalu PK diganti jadi (snapshot_date, site_id).
     const [cols] = await pool.query(
-      "SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'noim_sites' AND COLUMN_NAME = 'snapshot_date'"
+      "SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'noim_sites' AND COLUMN_NAME = 'snapshot_date'"
     );
-    if (!cols[0].c) {
+    if (!cols.length) {
       await pool.query('ALTER TABLE noim_sites ADD COLUMN snapshot_date DATE NULL FIRST');
-      await pool.query('UPDATE noim_sites SET snapshot_date = DATE(COALESCE(uploaded_at, NOW())) WHERE snapshot_date IS NULL');
-      await pool.query('ALTER TABLE noim_sites MODIFY snapshot_date DATE NOT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (snapshot_date, site_id), ADD INDEX idx_noim_site (site_id)');
       console.log('Migrasi: `noim_sites` diubah ke struktur per tanggal (snapshot_date).');
+    }
+    if (!cols.length || cols[0].IS_NULLABLE === 'YES') {
+      await pool.query('UPDATE noim_sites SET snapshot_date = DATE(COALESCE(uploaded_at, NOW())) WHERE snapshot_date IS NULL');
+      await pool.query('ALTER TABLE noim_sites MODIFY snapshot_date DATE NOT NULL');
+    }
+
+    // Pastikan DB lama/parsial yang sudah punya snapshot_date tetapi masih memakai
+    // PRIMARY KEY (site_id) juga mendukung satu Site ID pada beberapa tanggal.
+    const [primaryKeyColumns] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'noim_sites' AND INDEX_NAME = 'PRIMARY'
+        ORDER BY SEQ_IN_INDEX`
+    );
+    const hasDailyPrimaryKey =
+      primaryKeyColumns.length === 2 &&
+      primaryKeyColumns[0].COLUMN_NAME === 'snapshot_date' &&
+      primaryKeyColumns[1].COLUMN_NAME === 'site_id';
+    if (!hasDailyPrimaryKey) {
+      const dropPrimaryKey = primaryKeyColumns.length ? 'DROP PRIMARY KEY, ' : '';
+      await pool.query(
+        `ALTER TABLE noim_sites ${dropPrimaryKey}ADD PRIMARY KEY (snapshot_date, site_id)`
+      );
+      console.log('Migrasi: PRIMARY KEY `noim_sites` diperbaiki menjadi (snapshot_date, site_id).');
+    }
+
+    const [siteIndexes] = await pool.query(
+      "SELECT COUNT(*) AS c FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'noim_sites' AND INDEX_NAME = 'idx_noim_site'"
+    );
+    if (!siteIndexes[0].c) {
+      await pool.query('ALTER TABLE noim_sites ADD INDEX idx_noim_site (site_id)');
     }
     // Seragamkan regional data NOIM yang sudah tersimpan ("Regional 1" -> "Sumbagut", dst).
     const [mig] = await pool.query(

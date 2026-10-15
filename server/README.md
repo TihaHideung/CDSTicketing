@@ -76,7 +76,7 @@ di terminal lain (`npm run dev`), dan secara default sudah mengarah ke
   tanggal itu (kolom `data` bertipe JSON).
 - **eas_vswr_history** — riwayat summary EAS & VSWR Tracking, 1 baris per tanggal update
   (kolom `data` bertipe JSON berisi record lengkap). Dibuat otomatis saat server start.
-- **noim_sites** — data NOIM per tanggal (`snapshot_date`), PK `(snapshot_date, site_id)`. Upload ulang di tanggal yang sama hanya mengganti data tanggal itu. Tabel lama (tanpa tanggal) dimigrasi otomatis saat server start.
+- **noim_sites** — data NOIM per tanggal (`snapshot_date`), PK `(snapshot_date, site_id)`. Upload ulang di tanggal yang sama hanya mengganti data tanggal itu. Saat server start, tabel lama dimigrasi dan primary key yang masih hanya `site_id` diperbaiki otomatis.
 - **site_master** — hasil import file Master Site Detail, dipakai untuk lookup Cluster
   & Site Name berdasarkan Site ID.
 
