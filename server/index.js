@@ -201,6 +201,19 @@ async function ensureSchema() {
 
   try {
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS upload_metadata (
+        metadata_key   VARCHAR(100) PRIMARY KEY,
+        metadata_value VARCHAR(255) NOT NULL,
+        updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB
+    `);
+    console.log('Migrasi: tabel upload_metadata siap dipakai.');
+  } catch (err) {
+    console.error('Gagal membuat upload_metadata:', err.message);
+  }
+
+  try {
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS eas_vswr_history (
         date_iso   DATE PRIMARY KEY,
         data       JSON NOT NULL,
@@ -494,8 +507,29 @@ app.get('/api/active-tickets', async (_req, res) => {
 });
 
 app.post('/api/active-tickets/upsert', async (req, res) => {
-  const { rows, uploadDate, historicalOnly = false } = req.body;
-  if (!Array.isArray(rows) || rows.length === 0) return res.json({ upserted: 0, trendDate: null });
+  const { rows, uploadDate, historicalOnly = false, deviceUploadedAt } = req.body;
+  if (!Array.isArray(rows)) return res.json({ upserted: 0, trendDate: null });
+
+  if (
+    !historicalOnly &&
+    (typeof deviceUploadedAt !== 'string' ||
+      !Number.isFinite(Date.parse(deviceUploadedAt)) ||
+      new Date(deviceUploadedAt).toISOString() !== deviceUploadedAt)
+  ) {
+    return res.status(400).json({ error: 'Waktu upload perangkat tidak valid.' });
+  }
+
+  if (rows.length === 0) {
+    if (!historicalOnly) {
+      await pool.query(
+        `INSERT INTO upload_metadata (metadata_key, metadata_value)
+         VALUES ('last_device_daily_upload_at', ?)
+         ON DUPLICATE KEY UPDATE metadata_value=VALUES(metadata_value)`,
+        [deviceUploadedAt]
+      );
+    }
+    return res.json({ upserted: 0, trendDate: null });
+  }
 
   // `historicalOnly` = upload dengan TANGGAL PILIHAN (bukan waktu perangkat), untuk mengisi hari
   // yang terlewat. Hanya menulis ke riwayat (`ticket_archive_history`) + trend tanggal itu.
@@ -761,6 +795,15 @@ app.post('/api/active-tickets/upsert', async (req, res) => {
       [snapshotDate, JSON.stringify(snapshotSummary)]
     );
 
+    if (!historicalOnly) {
+      await conn.query(
+        `INSERT INTO upload_metadata (metadata_key, metadata_value)
+         VALUES ('last_device_daily_upload_at', ?)
+         ON DUPLICATE KEY UPDATE metadata_value=VALUES(metadata_value)`,
+        [deviceUploadedAt]
+      );
+    }
+
     await conn.commit();
     res.json({
       upserted: finalMap.size,
@@ -850,10 +893,9 @@ app.post('/api/swfm/merge', async (req, res) => {
 // ---------- Daily Trend ----------
 
 app.get('/api/archive-history/latest-upload', async (_req, res) => {
+  // Baca marker khusus upload harian perangkat, bukan waktu yang tercatat di histori tanggal pilihan.
   const [[row]] = await pool.query(
-    // Hanya upload dengan tanggal terbaru: mengisi tanggal lampau (upload tanggal pilihan) tidak
-    // boleh mengubah "Last data uploaded at", karena data aktif di Dashboard tidak berubah olehnya.
-    "SELECT DATE_FORMAT(MAX(uploaded_at), '%Y-%m-%d %H:%i:%s') AS lastUploadedAt FROM ticket_archive_history WHERE upload_date = (SELECT MAX(upload_date) FROM ticket_archive_history)"
+    "SELECT metadata_value AS lastUploadedAt FROM upload_metadata WHERE metadata_key = 'last_device_daily_upload_at'"
   );
   res.json({ lastUploadedAt: row?.lastUploadedAt || null });
 });

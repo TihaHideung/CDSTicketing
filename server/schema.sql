@@ -139,6 +139,14 @@ CREATE TABLE IF NOT EXISTS ticket_archive_history (
   INDEX idx_archive_ticket_key (ticket_key)
 ) ENGINE=InnoDB;
 
+-- Waktu upload harian INAP terakhir yang menggunakan waktu perangkat.
+-- Upload tanggal pilihan dan upload lain tidak mengubah nilai ini.
+CREATE TABLE IF NOT EXISTS upload_metadata (
+  metadata_key   VARCHAR(100) PRIMARY KEY,
+  metadata_value VARCHAR(255) NOT NULL,
+  updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
 -- Log trend harian: 1 baris per tanggal upload, isinya snapshot status terakhir sesuai
 -- tanggal upload device user, bukan berdasarkan last_occurred.
 CREATE TABLE IF NOT EXISTS daily_trend (

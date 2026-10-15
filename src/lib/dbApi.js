@@ -29,11 +29,11 @@ export async function getActiveTickets() {
  * apakah field rc/rcSub/detail/actionPlan perlu dipertahankan (kalau ticket-nya sudah
  * pernah ada & sudah diisi petugas sebelumnya).
  */
-export async function upsertActiveTickets(rows, uploadDate = null, historicalOnly = false) {
+export async function upsertActiveTickets(rows, uploadDate = null, historicalOnly = false, deviceUploadedAt = null) {
   return apiFetch('/api/active-tickets/upsert', {
     method: 'POST',
     // historicalOnly: upload tanggal pilihan -> hanya riwayat & trend, data aktif tidak disentuh.
-    body: JSON.stringify({ rows, uploadDate, historicalOnly }),
+    body: JSON.stringify({ rows, uploadDate, historicalOnly, deviceUploadedAt }),
   });
 }
 
@@ -71,20 +71,7 @@ export async function getArchiveHistory(from, to) {
 }
 
 export async function getLatestInapUpload() {
-  try {
-    return await apiFetch('/api/archive-history/latest-upload');
-  } catch (error) {
-    if (!error.message.includes('(status 404)')) throw error;
-
-    const rows = await apiFetch('/api/archive-history');
-    const latest = rows.reduce((current, row) => {
-      const timestamp = Date.parse(row.uploaded_at);
-      return Number.isFinite(timestamp) && timestamp > (current?.timestamp ?? -Infinity)
-        ? { value: row.uploaded_at, timestamp }
-        : current;
-    }, null);
-    return { lastUploadedAt: latest?.value || null };
-  }
+  return apiFetch('/api/archive-history/latest-upload');
 }
 
 export async function upsertDailyTrendEntry(entry) {

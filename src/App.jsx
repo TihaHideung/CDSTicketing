@@ -526,13 +526,15 @@ export default function App() {
 
       setProgressMessage('Menyimpan snapshot upload terbaru ke archive dan trend harian...');
       const uploadDateKey = dateKey;
+      const deviceUploadedAt = historicalOnly ? null : new Date().toISOString();
       await upsertActiveTickets(
         stillActive.map((r) => ({
           ...r,
           uploadDate: uploadDateKey,
         })),
         uploadDateKey,
-        historicalOnly
+        historicalOnly,
+        deviceUploadedAt
       );
 
       // Upload tanggal pilihan: muat ulang trend (supaya tanggalnya muncul) tapi biarkan
@@ -553,7 +555,7 @@ export default function App() {
         return;
       }
 
-      setLastInapUploadAt(new Date());
+      setLastInapUploadAt(deviceUploadedAt);
       await refreshAll({ refreshUploadTimestamp: false });
       setRegionalFilter(ALL_KEY);
       setNopFilter(ALL_KEY);
