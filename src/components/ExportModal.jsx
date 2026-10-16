@@ -1,22 +1,5 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { X, FileSpreadsheet, FileText } from 'lucide-react';
-import { TREND_PERIODS } from '../lib/aggregate.js';
-
-// Daftar grafik yang bisa dipilih untuk PDF. `full` = lebar penuh halaman PDF,
-// sisanya dijejerkan 2 per baris.
-export const EXPORT_CHARTS = [
-  { id: 'kpi', label: 'Ringkasan KPI', full: true },
-  { id: 'trend', label: 'Trend', full: true },
-  { id: 'donut', label: 'Cell Down vs Site Down' },
-  { id: 'siteclass', label: 'Site Class Distribution' },
-  { id: 'rc-cell', label: 'RC Category — Cell Down' },
-  { id: 'rc-site', label: 'RC Category — Site Down' },
-  { id: 'rcsub-cell', label: 'RC Subcategory — Cell Down' },
-  { id: 'rcsub-site', label: 'RC Subcategory — Site Down' },
-];
-
-// Periode trend yang bisa dipilih (urutan = urutan di PDF).
-export const TREND_EXPORT_PERIODS = TREND_PERIODS;
 
 function Check({ checked, onChange, disabled, children, className = '' }) {
   return (
@@ -36,29 +19,25 @@ function Check({ checked, onChange, disabled, children, className = '' }) {
 }
 
 /**
- * Pop up pilihan export Dashboard. `onConfirm({ excel, pdf, charts, trendPeriods })`.
+ * Pop up pilihan export Dashboard. `onConfirm({ excel, pdf, reportKey, uploadDateFrom, uploadDateTo })`.
+ * PDF = laporan Weekly (1 minggu, Jumat-Kamis), bukan kumpulan grafik.
+ * `getReportWeeks()` mengembalikan daftar minggu yang punya data: [{ key, label }] (terbaru dulu).
  * Komponen ini di-mount hanya saat dibuka, jadi pilihan selalu mulai dari default.
  */
-export default function ExportModal({ onClose, onConfirm, exporting, error, trendAvailable, trendUnavailableReason }) {
+export default function ExportModal({ onClose, onConfirm, exporting, error, getReportWeeks }) {
   const [excel, setExcel] = useState(false);
   const [uploadDateFrom, setUploadDateFrom] = useState('');
   const [uploadDateTo, setUploadDateTo] = useState('');
   const [pdf, setPdf] = useState(false);
-  const [charts, setCharts] = useState([]);
-  const [trendPeriods, setTrendPeriods] = useState([]);
+  const [reportKeyState, setReportKeyState] = useState(null);
 
-  const selectableIds = EXPORT_CHARTS.filter((c) => c.id !== 'trend' || trendAvailable).map((c) => c.id);
-  const trendSelected = charts.includes('trend') && trendAvailable;
-  const trendNeedsPeriod = trendSelected && trendPeriods.length === 0;
+  const periodOptions = useMemo(() => (getReportWeeks ? getReportWeeks() : []), [getReportWeeks]);
+  // Kalau pilihan belum ada, otomatis pakai minggu terbaru.
+  const reportKey = periodOptions.some((o) => o.key === reportKeyState) ? reportKeyState : periodOptions[0]?.key || null;
+  const reportReady = Boolean(reportKey);
+
   const uploadDateInvalid = excel && (!uploadDateFrom || !uploadDateTo || uploadDateFrom > uploadDateTo);
-  // Urutan periode mengikuti TREND_PERIODS, bukan urutan klik.
-  const orderedPeriods = TREND_EXPORT_PERIODS.map((p) => p.key).filter((k) => trendPeriods.includes(k));
-  // Trend tanpa periode tidak dihitung sebagai grafik yang akan diexport.
-  const activeCharts = charts.filter((id) => selectableIds.includes(id) && !(id === 'trend' && trendNeedsPeriod));
-
-  const toggleChart = (id, on) => setCharts((prev) => (on ? [...prev, id] : prev.filter((x) => x !== id)));
-  const toggleTrendPeriod = (key, on) => setTrendPeriods((prev) => (on ? [...prev, key] : prev.filter((k) => k !== key)));
-  const canExport = !exporting && !uploadDateInvalid && !(pdf && trendNeedsPeriod) && (excel || (pdf && activeCharts.length > 0));
+  const canExport = !exporting && !uploadDateInvalid && (excel || (pdf && reportReady)) && !(pdf && !reportReady);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -120,70 +99,34 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, tren
           <div className="rounded-lg border border-slate-200 p-3">
             <Check checked={pdf} onChange={setPdf} disabled={exporting}>
               <FileText size={16} className="text-brand-red" />
-              <span className="font-medium">PDF (grafik)</span>
+              <span className="font-medium">PDF (Report)</span>
             </Check>
-            <p className="ml-6 mt-1 text-xs text-slate-400">Pilih grafik mana saja yang dimasukkan.</p>
+            <p className="ml-6 mt-1 text-xs text-slate-400">
+              Laporan mingguan ringkas: trend mingguan &amp; harian, kenaikan/penurunan tertinggi beserta Regional/NOP penyebabnya.
+            </p>
 
             {pdf && (
-              <div className="ml-6 mt-3 border-t border-slate-100 pt-3">
-                <div className="mb-2 flex items-center gap-3 text-xs">
-                  <button
-                    type="button"
-                    disabled={exporting}
-                    onClick={() => setCharts(selectableIds)}
-                    className="font-medium text-sky-700 hover:underline disabled:opacity-40"
+              <div className="ml-6 mt-3 space-y-2 border-t border-slate-100 pt-3">
+                <label className="block text-xs font-medium text-slate-600">
+                  Minggu
+                  <select
+                    value={reportKey || ''}
+                    onChange={(event) => setReportKeyState(event.target.value)}
+                    disabled={exporting || !reportReady}
+                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
                   >
-                    Pilih semua
-                  </button>
-                  <button
-                    type="button"
-                    disabled={exporting}
-                    onClick={() => setCharts([])}
-                    className="font-medium text-slate-500 hover:underline disabled:opacity-40"
-                  >
-                    Kosongkan
-                  </button>
-                  <span className="text-slate-400">{activeCharts.length} grafik dipilih</span>
-                </div>
+                    {periodOptions.map((o) => (
+                      <option key={o.key} value={o.key}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-                <div className="space-y-1.5">
-                  {EXPORT_CHARTS.map((c) => {
-                    const isTrend = c.id === 'trend';
-                    const disabled = exporting || (isTrend && !trendAvailable);
-                    return (
-                      <div key={c.id}>
-                        <Check
-                          checked={charts.includes(c.id) && !(isTrend && !trendAvailable)}
-                          onChange={(on) => toggleChart(c.id, on)}
-                          disabled={disabled}
-                        >
-                          {c.label}
-                        </Check>
-                        {isTrend && !trendAvailable && (
-                          <p className="ml-6 text-[11px] text-slate-400">{trendUnavailableReason}</p>
-                        )}
-                        {isTrend && trendAvailable && charts.includes('trend') && (
-                          <div className="ml-6 mt-1 space-y-1 rounded-md bg-slate-50 px-3 py-2">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Periode trend</div>
-                            {TREND_EXPORT_PERIODS.map((p) => (
-                              <Check
-                                key={p.key}
-                                checked={trendPeriods.includes(p.key)}
-                                onChange={(on) => toggleTrendPeriod(p.key, on)}
-                                disabled={exporting}
-                              >
-                                {p.label}
-                              </Check>
-                            ))}
-                            {trendPeriods.length === 0 && (
-                              <p className="text-[11px] text-red-500">Pilih minimal satu periode trend.</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                {!reportReady && (
+                  <p className="text-[11px] text-red-500">Belum ada data trend untuk filter ini, jadi report belum bisa dibuat.</p>
+                )}
+                <p className="text-[11px] text-slate-400">Mengikuti filter Dashboard yang aktif. Minggu = Jumat s/d Kamis.</p>
               </div>
             )}
           </div>
@@ -205,14 +148,14 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, tren
           <button
             type="button"
             disabled={!canExport}
-            onClick={() => onConfirm({ excel, pdf, charts: activeCharts, trendPeriods: orderedPeriods, uploadDateFrom, uploadDateTo })}
+            onClick={() => onConfirm({ excel, pdf, reportKey, uploadDateFrom, uploadDateTo })}
             className="rounded-md bg-brand-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {exporting ? 'Mengekspor...' : 'Export'}
           </button>
         </div>
-        {!excel && pdf && activeCharts.length === 0 && (
-          <p className="mt-2 text-right text-xs text-slate-400">Pilih minimal satu grafik untuk PDF.</p>
+        {!excel && pdf && !reportReady && (
+          <p className="mt-2 text-right text-xs text-slate-400">Belum ada minggu yang punya data untuk filter ini.</p>
         )}
         {!excel && !pdf && <p className="mt-2 text-right text-xs text-slate-400">Pilih minimal satu format export.</p>}
       </div>

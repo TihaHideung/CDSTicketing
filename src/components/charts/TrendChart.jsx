@@ -1,10 +1,55 @@
   import React, { useMemo, useState } from 'react';
   import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid, LabelList } from 'recharts';
-  import { TREND_PERIODS, aggregateTrendByPeriod, aggregateTrendByRegionByPeriod } from '../../lib/aggregate.js';
+  import { TREND_PERIODS, NOP_KEY_PREFIX, getPeriodBucket, aggregateTrendByPeriod, aggregateTrendByRegionByPeriod, aggregateTrendByNopByPeriod } from '../../lib/aggregate.js';
   import { SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, SOURCE_NOT_BOTH } from '../../lib/constants.js';
 
   const REGION_COLORS = { Sumbagut: '#e0301e', Sumbagteng: '#0ea5e9', Sumbagsel: '#22c55e' };
 
+  // Warna per NOP (mode 1 Regional + 1 Tipe alarm). Urutan mengikuti daftar NOP dari seluruh data,
+  // jadi satu NOP selalu punya warna yang sama di semua periode & di PDF.
+  const NOP_COLORS = [
+    '#e0301e', '#0ea5e9', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6',
+    '#84cc16', '#f97316', '#6366f1', '#06b6d4', '#a16207', '#64748b', '#be123c',
+  ];
+
+
+  // Tooltip mengikuti urutan legenda, warna = warna NOP.
+  function NopTooltip({ active, payload, items, colorOf }) {
+    if (!active || !payload?.length) return null;
+    const row = payload[0].payload;
+    const tooltipItems = [...items].reverse()
+      .map((nop) => ({ nop, value: Number(row[NOP_KEY_PREFIX + nop]) || 0 }))
+      .filter((e) => e.value > 0);
+    return (
+      <div style={{ background: '#fff', border: '1px solid #cbd5e1', padding: '8px 12px', fontSize: 12, boxShadow: '0 2px 8px rgba(15,23,42,.12)' }}>
+        <div style={{ fontWeight: 600, marginBottom: 2 }}>{row.date}</div>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>Total : {formatTrendValue(row.total)}</div>
+        {tooltipItems.map((e) => (
+          <div key={e.nop} style={{ color: colorOf(e.nop), display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 9, height: 9, background: colorOf(e.nop), display: 'inline-block', flexShrink: 0 }} />
+            {e.nop} : {formatTrendValue(e.value)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function NopLegend({ items, colorOf }) {
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '4px 14px', paddingTop: 8, fontSize: 12 }}>
+        {items.map((nop) => (
+          <span key={nop} style={{ color: colorOf(nop), display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 10, height: 10, background: colorOf(nop), display: 'inline-block' }} />
+            {nop}
+          </span>
+        ))}
+        <span style={{ color: '#0f172a', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 14, height: 0, borderTop: '2.5px solid #0f172a', display: 'inline-block' }} />
+          Total
+        </span>
+      </div>
+    );
+  }
 
   function totalLabel(props) {
     const { x, y, value } = props;
@@ -74,6 +119,36 @@
     );
   }
 
+  function DailyWeekRangeSelector({ weeks, startWeek, endWeek, onStartChange, onEndChange }) {
+    if (!weeks.length) return null;
+    return (
+      <div className="inline-flex flex-wrap items-center gap-2 text-xs">
+        <label className="flex items-center gap-1.5 text-slate-500">
+          Dari
+          <select
+            aria-label="Minggu awal trend harian"
+            value={startWeek}
+            onChange={(event) => onStartChange(event.target.value)}
+            className="w-[76px] rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700"
+          >
+            {weeks.map((week) => <option key={week.key} value={week.key}>{week.label}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-1.5 text-slate-500">
+          Sampai
+          <select
+            aria-label="Minggu akhir trend harian"
+            value={endWeek}
+            onChange={(event) => onEndChange(event.target.value)}
+            className="w-[76px] rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700"
+          >
+            {weeks.map((week) => <option key={week.key} value={week.key}>{week.label}</option>)}
+          </select>
+        </label>
+      </div>
+    );
+  }
+
   /**
    * `dataByRegion` diisi (array of {date, Sumbagut, Sumbagteng, Sumbagsel}) kalau filter
    * yang aktif adalah "Semua Regional" — batang tiap regional dijejerkan per hari, TIDAK
@@ -85,7 +160,7 @@
    * dengan nilai Weekly/Monthly/dst = RATA-RATA harian dalam periode itu (bukan total),
    * karena data sumbernya adalah snapshot backlog harian, bukan jumlah ticket baru per hari.
    */
-  export default function TrendChart({ dataByRegion, dataSingle, regions, hasGranularFilter, logHasOlderData, fixedPeriod, sourceMode = SOURCE_INAP, skippedDates = [] }) {
+  export default function TrendChart({ dataByRegion, dataSingle, dataByNop, nops = [], nopTitle, regions, hasGranularFilter, logHasOlderData, fixedPeriod, sourceMode = SOURCE_INAP, skippedDates = [] }) {
     const sourceLabel = sourceMode !== SOURCE_INAP ? SOURCE_LABELS[sourceMode] : null;
     const siteDownOnly = sourceMode !== SOURCE_INAP;
     // `fixedPeriod` dipakai saat export PDF: periode dikunci, selector disembunyikan, dan
@@ -94,15 +169,53 @@
     const period = fixedPeriod || periodState;
     const animate = !fixedPeriod;
     const fixedLabel = fixedPeriod ? TREND_PERIODS.find((p) => p.key === fixedPeriod)?.label : null;
-    const isByRegion = Array.isArray(dataByRegion);
-    const rawData = isByRegion ? dataByRegion : dataSingle;
+    const isByNop = Array.isArray(dataByNop);
+    const isByRegion = !isByNop && Array.isArray(dataByRegion);
+    const rawData = isByNop ? dataByNop : isByRegion ? dataByRegion : dataSingle;
+    const [dailyStartWeek, setDailyStartWeek] = useState('');
+    const [dailyEndWeek, setDailyEndWeek] = useState('');
+
+    const weeks = useMemo(() => {
+      if (!rawData) return [];
+      const weekMap = new Map();
+      rawData.forEach((row) => {
+        if (!row.date) return;
+        const week = getPeriodBucket(row.date, 'weekly');
+        weekMap.set(week.key, week);
+      });
+      return [...weekMap.values()].sort((a, b) => a.key.localeCompare(b.key));
+    }, [rawData]);
+
+    const selectedStartWeek = weeks.some((week) => week.key === dailyStartWeek) ? dailyStartWeek : weeks[0]?.key || '';
+    const selectedEndWeek = weeks.some((week) => week.key === dailyEndWeek) ? dailyEndWeek : weeks[weeks.length - 1]?.key || '';
 
     const data = useMemo(() => {
       if (!rawData) return rawData;
+      if (isByNop) return aggregateTrendByNopByPeriod(rawData, nops, period);
       return isByRegion
         ? aggregateTrendByRegionByPeriod(rawData, regions, period)
         : aggregateTrendByPeriod(rawData, period);
-    }, [rawData, isByRegion, regions, period]);
+    }, [rawData, isByNop, isByRegion, nops, regions, period]);
+
+    const displayData = useMemo(() => {
+      if (period !== 'daily' || fixedPeriod || !weeks.length) return data;
+      const fromWeek = selectedStartWeek < selectedEndWeek ? selectedStartWeek : selectedEndWeek;
+      const toWeek = selectedStartWeek < selectedEndWeek ? selectedEndWeek : selectedStartWeek;
+      return data.filter((row) => {
+        const weekKey = getPeriodBucket(row.date, 'weekly').key;
+        return weekKey >= fromWeek && weekKey <= toWeek;
+      });
+    }, [data, period, fixedPeriod, weeks, selectedStartWeek, selectedEndWeek]);
+
+    const changeStartWeek = (weekKey) => {
+      setDailyStartWeek(weekKey);
+      if (weekKey > selectedEndWeek) setDailyEndWeek(weekKey);
+    };
+
+    const changeEndWeek = (weekKey) => {
+      setDailyEndWeek(weekKey);
+      if (weekKey < selectedStartWeek) setDailyStartWeek(weekKey);
+    };
 
     if (!rawData || rawData.length < 1) {
       return (
@@ -120,8 +233,55 @@
       );
     }
 
+    if (isByNop) {
+      // NOP yang tidak punya data sama sekali di jendela ini tidak digambar / tidak masuk legenda.
+      const activeNops = nops.filter((nop) => displayData.some((e) => Number(e[NOP_KEY_PREFIX + nop]) > 0));
+      const colorOf = (nop) => NOP_COLORS[nops.indexOf(nop) % NOP_COLORS.length];
+      // Legenda: NOP dengan total terbesar di jendela ini duluan.
+      const legendItems = [...activeNops].sort(
+        (a, b) =>
+          displayData.reduce((sum, e) => sum + (Number(e[NOP_KEY_PREFIX + b]) || 0), 0) -
+          displayData.reduce((sum, e) => sum + (Number(e[NOP_KEY_PREFIX + a]) || 0), 0)
+      );
+
+      return (
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+            <h3 className="font-semibold text-slate-800">
+              Trend{nopTitle ? ` ${nopTitle}` : ' per NOP'}{fixedLabel ? ` (${fixedLabel})` : ''}
+            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
+              {!fixedPeriod && period === 'daily' && (
+                <DailyWeekRangeSelector weeks={weeks} startWeek={selectedStartWeek} endWeek={selectedEndWeek} onStartChange={changeStartWeek} onEndChange={changeEndWeek} />
+              )}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 mb-1">
+            Tiap warna = 1 NOP, urutan potongan mengikuti legenda.
+            {period !== 'daily' && ' Nilai = rata-rata ticket aktif per hari dalam periode ini.'}
+          </p>
+          <ResponsiveContainer width="100%" height={320}>
+            <ComposedChart data={displayData} margin={{ top: 24 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip content={<NopTooltip items={legendItems} colorOf={colorOf} />} />
+              <Legend content={<NopLegend items={legendItems} colorOf={colorOf} />} />
+              {legendItems.map((nop) => (
+                <Bar key={nop} dataKey={NOP_KEY_PREFIX + nop} name={nop} stackId="nop" fill={colorOf(nop)} isAnimationActive={animate} />
+              ))}
+              <Line type="monotone" dataKey="total" name="Total" stroke="#0f172a" strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={animate}>
+                <LabelList dataKey="total" content={totalLabel} />
+              </Line>
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      );
+    }
+
     if (isByRegion) {
-      const lineData = data.map((entry) => ({
+      const lineData = displayData.map((entry) => ({
         ...entry,
         total: regions.reduce((sum, reg) => sum + Number(entry[reg] || 0), 0),
       }));
@@ -138,7 +298,12 @@
             <h3 className="font-semibold text-slate-800">
               Trend{sourceLabel ? ` ${sourceLabel}` : ''} - Perbandingan Antar Regional{fixedLabel ? ` (${fixedLabel})` : ''}
             </h3>
-            {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
+            <div className="flex flex-wrap items-center gap-2">
+              {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
+              {!fixedPeriod && period === 'daily' && (
+                <DailyWeekRangeSelector weeks={weeks} startWeek={selectedStartWeek} endWeek={selectedEndWeek} onStartChange={changeStartWeek} onEndChange={changeEndWeek} />
+              )}
+            </div>
           </div>
           <SourceNote sourceMode={sourceMode} skippedDates={skippedDates} />
           {period !== 'daily' && (
@@ -173,22 +338,27 @@
       );
     }
 
-    const last = data[data.length - 1];
-    const prev = data[data.length - 2] || null;
+    const last = displayData[displayData.length - 1];
+    const prev = displayData[displayData.length - 2] || null;
     const delta = prev ? last.total - prev.total : 0;
 
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
           <h3 className="font-semibold text-slate-800">Trend{sourceLabel ? ` ${sourceLabel}` : ''}{fixedLabel ? ` (${fixedLabel})` : ''}</h3>
-          {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
+          <div className="flex flex-wrap items-center gap-2">
+            {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
+            {!fixedPeriod && period === 'daily' && (
+              <DailyWeekRangeSelector weeks={weeks} startWeek={selectedStartWeek} endWeek={selectedEndWeek} onStartChange={changeStartWeek} onEndChange={changeEndWeek} />
+            )}
+          </div>
         </div>
         <SourceNote sourceMode={sourceMode} skippedDates={skippedDates} />
         {period !== 'daily' && (
           <p className="text-[11px] text-slate-400 mb-1">Nilai menunjukkan rata-rata ticket aktif per hari dari snapshot yang tersedia dalam periode ini.</p>
         )}
         <ResponsiveContainer width="100%" height={280}>
-          <ComposedChart data={data} margin={{ top: 24 }}>
+          <ComposedChart data={displayData} margin={{ top: 24 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="date" />
             <YAxis />

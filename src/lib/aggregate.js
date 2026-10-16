@@ -235,7 +235,7 @@ export function buildDailyTrendByRegion(dailyTrendLog, regions) {
  * Filter Regional TIDAK dicek di sini karena ditangani terpisah (lihat pemanggil),
  * supaya fungsi ini bisa dipakai baik untuk mode "1 Regional" maupun "Semua Regional".
  */
-function breakdownItemMatchesFilters(item, criteria) {
+export function breakdownItemMatchesFilters(item, criteria) {
   const { nop, cluster, category, duration, rc, rcSub, rcUnset } = criteria;
   if (nop && item.nop !== nop) return false;
   if (cluster && item.cluster !== cluster) return false;
@@ -247,7 +247,7 @@ function breakdownItemMatchesFilters(item, criteria) {
   return true;
 }
 
-function hasGranularFilter(criteria) {
+export function hasGranularFilter(criteria) {
   const { nop, cluster, category, duration, rc, rcSub, rcUnset } = criteria;
   return Boolean(nop || cluster || category || (duration && duration.length) || rc || rcSub || rcUnset);
 }
@@ -380,7 +380,7 @@ function getISOWeek(date) {
  * Tentukan "grup periode" (key unik untuk pengelompokan) + label yang ditampilkan
  * untuk 1 tanggal (format 'YYYY-MM-DD'), sesuai periode yang dipilih user.
  */
-function getPeriodBucket(dateKey, period) {
+export function getPeriodBucket(dateKey, period) {
   const d = new Date(`${dateKey}T00:00:00`);
   if (Number.isNaN(d.getTime())) return { key: dateKey, label: dateKey };
 
@@ -466,6 +466,77 @@ export function aggregateTrendByRegionByPeriod(dailyData, regions, period) {
     .map((b) => {
       const point = { date: b.label };
       for (const reg of regions) point[reg] = Math.ceil(b.sums[reg] / b.days);
+      return point;
+    });
+}
+
+// ---------- Trend per NOP (1 Regional + 1 Tipe alarm) ----------
+//
+// Dipakai HANYA untuk tampilan: saat filter Regional = 1 regional dan Category = CellDown/SiteDown,
+// batang trend dipecah per NOP (tiap NOP 1 warna) supaya terlihat dampak masing-masing NOP.
+// Angka total-nya tetap sama dengan `buildFilteredDailyTrend` untuk filter yang sama.
+
+export const NOP_KEY_PREFIX = 'n::';
+
+/**
+ * Trend harian per NOP, mengikuti semua filter aktif (termasuk Regional). Hari data lama yang
+ * belum menyimpan rincian NOP dilewati (sama seperti filter granular lain di trend).
+ * Hasil: { rows: [{ date, total, byNop: { [nop]: jumlah } }], nops: [nama NOP terurut abjad] }.
+ * `nops` dihitung dari SELURUH log supaya warna tiap NOP tetap konsisten walau jendela data berubah.
+ */
+export function buildFilteredDailyTrendByNop(dailyTrendLog, criteria = {}) {
+  const { regionalFilter } = criteria;
+  const rows = [];
+  const nopSet = new Set();
+
+  for (const entry of dailyTrendLog || []) {
+    if (!(Array.isArray(entry?.breakdown) && (entry.breakdown.length || entry.complete))) continue;
+    const byNop = {};
+    let total = 0;
+    for (const item of entry.breakdown) {
+      if (regionalFilter && regionalFilter !== 'ALL' && !matchesRegionalTag(item.regional, regionalFilter)) continue;
+      if (!breakdownItemMatchesFilters(item, criteria)) continue;
+      const nop = item.nop || 'Tanpa NOP';
+      const count = Number(item.count) || 0;
+      byNop[nop] = (byNop[nop] || 0) + count;
+      total += count;
+      nopSet.add(nop);
+    }
+    rows.push({ date: entry.date, total, byNop });
+  }
+
+  rows.sort((a, b) => (a.date > b.date ? 1 : -1));
+  return { rows, nops: Array.from(nopSet).sort((a, b) => a.localeCompare(b)) };
+}
+
+/**
+ * Agregasi hasil `buildFilteredDailyTrendByNop` ke periode (sama seperti aggregateTrendByPeriod:
+ * nilai = rata-rata harian). Output sudah "datar" untuk Recharts: { date, total, 'n::<NOP>': nilai }.
+ * Nilai per NOP tidak dibulatkan (supaya tinggi tumpukan tidak melebihi total); total dibulatkan
+ * ke atas seperti grafik lain.
+ */
+export function aggregateTrendByNopByPeriod(rows, nops, period) {
+  if (!Array.isArray(rows) || !rows.length) return [];
+
+  const buckets = new Map();
+  for (const row of rows) {
+    const { key, label } = getPeriodBucket(row.date, period);
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { key, label, total: 0, sums: {}, days: 0 };
+      for (const nop of nops) bucket.sums[nop] = 0;
+      buckets.set(key, bucket);
+    }
+    bucket.total += Number(row.total) || 0;
+    for (const nop of nops) bucket.sums[nop] += Number(row.byNop?.[nop]) || 0;
+    bucket.days++;
+  }
+
+  return Array.from(buckets.values())
+    .sort((a, b) => (a.key > b.key ? 1 : -1))
+    .map((b) => {
+      const point = { date: b.label, total: period === 'daily' ? b.total : Math.ceil(b.total / b.days) };
+      for (const nop of nops) point[NOP_KEY_PREFIX + nop] = b.sums[nop] / b.days;
       return point;
     });
 }

@@ -855,6 +855,8 @@ export default function App() {
           viewRows={viewRows}
           sourceMode={effectiveSource}
           trendSkippedDates={trendSkippedDates}
+          trendLog={activeTrendLog}
+          trendCriteria={trendCriteria}
           filters={filterProps}
           onGoToUpload={() => goToPage('upload')}
           onRowClick={(r) => r._source !== 'NOIM' && setSelectedTicketKey(r._key)}
@@ -915,7 +917,7 @@ export default function App() {
   }, [
     active, mergeFile, swfmFile, masterFile, processing, progressMessage, error, uploadDateMode, uploadDate, processMessage, dailyTrendLog,
     masterImporting, masterCount, noimFile, noimUploading, noimMessage, noimError, noimSiteSet, noimDate, noimDates, trendSkippedDates, sourceStats, sourceFilter, effectiveSource, summary, removedStats, dailyTrend, dailyTrendByRegion,
-    trendHasGranularFilter, trendLogHasOlderData, regionalFilter,
+    trendHasGranularFilter, trendLogHasOlderData, activeTrendLog, trendCriteria, regionalFilter,
     nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, dateFrom, dateTo, nopOptions, clusterOptions, viewRows,
     handleProcess, handleUploadDateModeChange, handleExport, handleImportMaster, handleUploadNoim, handleCategoryChange, handleDownloadBulkRcTemplate, handleBulkRcUpload,
   ]);
