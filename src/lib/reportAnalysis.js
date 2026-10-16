@@ -559,12 +559,11 @@ function eventPoints(report, ev, src) {
 
   const list = x.nop || x.regional;
   if (list?.length) {
-    const level = x.nop ? 'NOP' : 'Regional';
     const top = list[0];
-    if (top.share >= 0.5) lines.push(`${level} ${top.label} mendominasi (${fmtPct(top.share)}).`);
+    if (top.share >= 0.5) lines.push(`${top.label} mendominasi (${fmtPct(top.share)}).`);
     else if (list.length >= 3) {
       const top3 = list.slice(0, 3).reduce((sum, e) => sum + e.share, 0);
-      lines.push(top3 >= 0.75 ? `3 ${level} teratas menyumbang ${fmtPct(top3)}.` : `Tersebar di banyak ${level} (3 teratas ${fmtPct(top3)}).`);
+      lines.push(top3 >= 0.75 ? `3 teratas menyumbang ${fmtPct(top3)}.` : `Tersebar (3 teratas ${fmtPct(top3)}).`);
     }
   }
   if (!x.detailed) lines.push('Rincian NOP/kategori tidak tersimpan (data lama).');
@@ -631,5 +630,18 @@ function buildPoints(report) {
   if (report.ongoing) notes.push(`${unit.charAt(0).toUpperCase()}${unit.slice(1)} ini masih berjalan (${report.daysWithData}/${report.totalDays} hari).`);
   if (!report.detailed) notes.push('Sebagian data lama tanpa rincian NOP/kategori.');
 
-  return { trend, daily, events, notes };
+  // Chip super singkat untuk PDF (ditaruh di bawah grafik).
+  const chips = {
+    trend: [dirText, extreme].filter(Boolean),
+    daily:
+      report.subPoints.length > 1
+        ? [
+            report.rise ? `Naik tertinggi ${eventLabel(report, report.rise)}: ${fmtSigned(report.rise.change)}` : null,
+            report.drop ? `Turun terendah ${eventLabel(report, report.drop)}: ${fmtSigned(report.drop.change)}` : null,
+            `Awal -> akhir: ${fmtNum(h.first.total)} -> ${fmtNum(h.last.total)} (${fmtSigned(h.startToEnd)})`,
+          ].filter(Boolean)
+        : [],
+  };
+
+  return { trend, daily, events, notes, chips };
 }

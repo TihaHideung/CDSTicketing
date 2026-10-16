@@ -102,7 +102,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               <span className="font-medium">PDF (Report)</span>
             </Check>
             <p className="ml-6 mt-1 text-xs text-slate-400">
-              Laporan mingguan ringkas: trend mingguan &amp; harian, kenaikan/penurunan tertinggi beserta Regional/NOP penyebabnya.
+              Laporan mingguan ringkas, Cell Down &amp; Site Down dipisah: trend mingguan &amp; harian, kenaikan/penurunan tertinggi beserta NOP penyebabnya.
             </p>
 
             {pdf && (
