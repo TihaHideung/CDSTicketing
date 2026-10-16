@@ -295,8 +295,7 @@ export default function App() {
 
   const handleCategoryChange = useCallback((val) => {
     setCategoryFilter(val);
-    // Filter Sumber Data tertutup lagi kalau Tipe bukan Site Down -> kembalikan ke INAP.
-    if (val !== 'SiteDown') setSourceFilter(DEFAULT_SOURCE_FILTER);
+    setSourceFilter(val === 'SiteDown' ? SOURCE_INAP : DEFAULT_SOURCE_FILTER);
   }, []);
 
   // Kembalikan SEMUA filter (Dashboard & Detail Ticket) ke nilai default.

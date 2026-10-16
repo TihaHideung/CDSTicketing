@@ -5,29 +5,32 @@
 
   const REGION_COLORS = { Sumbagut: '#e0301e', Sumbagteng: '#0ea5e9', Sumbagsel: '#22c55e' };
 
-  // Warna per NOP (mode 1 Regional + 1 Tipe alarm). Urutan mengikuti daftar NOP dari seluruh data,
-  // jadi satu NOP selalu punya warna yang sama di semua periode & di PDF.
   const NOP_COLORS = [
-    '#e0301e', '#0ea5e9', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6',
-    '#84cc16', '#f97316', '#6366f1', '#06b6d4', '#a16207', '#64748b', '#be123c',
+    '#fa003f', '#3cb44b', '#4363d8', '#f58231', '#ee00ff', '#ffd700', '#2f4f4f',
+    '#006d2c', '#469990', '#9a6324', '#800000', '#008080', '#808000', '#8c6d31',
   ];
+  const NOP_COLOR_OVERRIDES = {
+    'PEMATANG SIANTAR': '#ffd700',
+    'RANTAU PRAPAT': '#ff00a8',
+    'PADANG SIDEMPUAN': '#009e73',
+  };
 
 
   // Tooltip mengikuti urutan legenda, warna = warna NOP.
   function NopTooltip({ active, payload, items, colorOf }) {
     if (!active || !payload?.length) return null;
     const row = payload[0].payload;
-    const tooltipItems = [...items].reverse()
+    const tooltipItems = items
       .map((nop) => ({ nop, value: Number(row[NOP_KEY_PREFIX + nop]) || 0 }))
       .filter((e) => e.value > 0);
     return (
-      <div style={{ background: '#fff', border: '1px solid #cbd5e1', padding: '8px 12px', fontSize: 12, boxShadow: '0 2px 8px rgba(15,23,42,.12)' }}>
-        <div style={{ fontWeight: 600, marginBottom: 2 }}>{row.date}</div>
-        <div style={{ fontWeight: 700, marginBottom: 4 }}>Total : {formatTrendValue(row.total)}</div>
+      <div style={{ background: '#fff', border: '1px solid #cbd5e1', padding: '12px 16px', minWidth: 280, boxSizing: 'border-box', fontSize: 18, lineHeight: 1.5, boxShadow: '0 2px 8px rgba(15,23,42,.12)' }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>{row.date}</div>
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>Total : {formatTrendValue(row.total)}</div>
         {tooltipItems.map((e) => (
-          <div key={e.nop} style={{ color: colorOf(e.nop), display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div key={e.nop} style={{ color: colorOf(e.nop), display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 9, height: 9, background: colorOf(e.nop), display: 'inline-block', flexShrink: 0 }} />
-            {e.nop} : {formatTrendValue(e.value)}
+            {e.nop} : {Math.round(e.value).toLocaleString('id-ID')}
           </div>
         ))}
       </div>
@@ -98,6 +101,24 @@
 
   function formatTrendValue(value) {
     return Number(value || 0).toLocaleString('id-ID', { maximumFractionDigits: 1 });
+  }
+
+  function getBarAxisScale(maxValue) {
+    const value = Math.max(0, Number(maxValue) || 0);
+    if (value === 0) return { max: 1, ticks: [0, 0.2, 0.4, 0.6, 0.8, 1] };
+
+    const roughStep = value / 8;
+    const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+    const normalizedStep = roughStep / magnitude;
+    const stepFactor = normalizedStep <= 1 ? 1 : normalizedStep <= 2 ? 2 : normalizedStep <= 5 ? 5 : 10;
+    const step = stepFactor * magnitude;
+    const tickCount = Math.ceil(value / step);
+    const max = Number((tickCount * step).toPrecision(12));
+    const precision = Math.max(0, -Math.floor(Math.log10(step)));
+    const ticks = Array.from({ length: tickCount + 1 }, (_, index) =>
+      Number((index * step).toFixed(precision))
+    );
+    return { max, ticks };
   }
 
   function PeriodSelector({ period, onChange }) {
@@ -236,7 +257,12 @@
     if (isByNop) {
       // NOP yang tidak punya data sama sekali di jendela ini tidak digambar / tidak masuk legenda.
       const activeNops = nops.filter((nop) => displayData.some((e) => Number(e[NOP_KEY_PREFIX + nop]) > 0));
-      const colorOf = (nop) => NOP_COLORS[nops.indexOf(nop) % NOP_COLORS.length];
+      const maxBarValue = displayData.reduce(
+        (max, row) => activeNops.reduce((rowMax, nop) => Math.max(rowMax, Number(row[NOP_KEY_PREFIX + nop]) || 0), max),
+        0
+      );
+      const barAxis = getBarAxisScale(maxBarValue);
+      const colorOf = (nop) => NOP_COLOR_OVERRIDES[String(nop).trim().toLocaleUpperCase('id-ID')] || NOP_COLORS[nops.indexOf(nop) % NOP_COLORS.length];
       // Legenda: NOP dengan total terbesar di jendela ini duluan.
       const legendItems = [...activeNops].sort(
         (a, b) =>
@@ -248,7 +274,7 @@
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
             <h3 className="font-semibold text-slate-800">
-              Trend{nopTitle ? ` ${nopTitle}` : ' per NOP'}{fixedLabel ? ` (${fixedLabel})` : ''}
+              Trend{nopTitle ? ` ${nopTitle}` : ''}{fixedLabel ? ` (${fixedLabel})` : ''}
             </h3>
             <div className="flex flex-wrap items-center gap-2">
               {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
@@ -257,21 +283,21 @@
               )}
             </div>
           </div>
-          <p className="text-[11px] text-slate-400 mb-1">
-            Tiap warna = 1 NOP, urutan potongan mengikuti legenda.
-            {period !== 'daily' && ' Nilai = rata-rata ticket aktif per hari dalam periode ini.'}
-          </p>
+          {period !== 'daily' && (
+            <p className="text-[11px] text-slate-400 mb-1">Nilai = rata-rata ticket aktif per hari dalam periode ini.</p>
+          )}
           <ResponsiveContainer width="100%" height={320}>
-            <ComposedChart data={displayData} margin={{ top: 24 }}>
+            <ComposedChart data={displayData} margin={{ top: 24 }} barGap={1} barCategoryGap="5%">
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="date" />
-              <YAxis />
+              <YAxis domain={[0, barAxis.max]} ticks={barAxis.ticks} allowDataOverflow />
+              <YAxis yAxisId="total" hide domain={[0, 'dataMax']} />
               <Tooltip content={<NopTooltip items={legendItems} colorOf={colorOf} />} />
               <Legend content={<NopLegend items={legendItems} colorOf={colorOf} />} />
               {legendItems.map((nop) => (
-                <Bar key={nop} dataKey={NOP_KEY_PREFIX + nop} name={nop} stackId="nop" fill={colorOf(nop)} isAnimationActive={animate} />
+                <Bar key={nop} dataKey={NOP_KEY_PREFIX + nop} name={nop} fill={colorOf(nop)} maxBarSize={28} isAnimationActive={animate} />
               ))}
-              <Line type="monotone" dataKey="total" name="Total" stroke="#0f172a" strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={animate}>
+              <Line type="monotone" dataKey="total" name="Total" yAxisId="total" stroke="#0f172a" strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={animate}>
                 <LabelList dataKey="total" content={totalLabel} />
               </Line>
             </ComposedChart>
@@ -291,6 +317,11 @@
       // yang hanya berisi Regional 1).
       const activeRegions = regions.filter((reg) => lineData.some((e) => Number(e[reg]) > 0));
       const barRegions = activeRegions.length ? activeRegions : regions;
+      const maxBarValue = lineData.reduce(
+        (max, entry) => barRegions.reduce((rowMax, reg) => Math.max(rowMax, Number(entry[reg]) || 0), max),
+        0
+      );
+      const barAxis = getBarAxisScale(maxBarValue);
 
       return (
         <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -313,7 +344,8 @@
             <ComposedChart data={lineData} margin={{ top: 24 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="date" />
-              <YAxis />
+              <YAxis domain={[0, barAxis.max]} ticks={barAxis.ticks} allowDataOverflow />
+              <YAxis yAxisId="total" hide domain={[0, 'dataMax']} />
               <Tooltip formatter={(value) => formatTrendValue(value)} />
               <Legend />
               {barRegions.map((reg) => (
@@ -325,6 +357,7 @@
                 type="monotone"
                 dataKey="total"
                 name="Total"
+                yAxisId="total"
                 stroke="#0f172a"
                 strokeWidth={2.5}
                 dot={{ r: 3 }}
@@ -341,6 +374,13 @@
     const last = displayData[displayData.length - 1];
     const prev = displayData[displayData.length - 2] || null;
     const delta = prev ? last.total - prev.total : 0;
+    const maxBarValue = displayData.reduce((max, row) => {
+      const barTotal = siteDownOnly
+        ? Number(row.siteDown) || 0
+        : (Number(row.cellDown) || 0) + (Number(row.siteDown) || 0);
+      return Math.max(max, barTotal);
+    }, 0);
+    const barAxis = getBarAxisScale(maxBarValue);
 
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -361,12 +401,13 @@
           <ComposedChart data={displayData} margin={{ top: 24 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="date" />
-            <YAxis />
+            <YAxis domain={[0, barAxis.max]} ticks={barAxis.ticks} allowDataOverflow />
+            <YAxis yAxisId="total" hide domain={[0, 'dataMax']} />
             <Tooltip formatter={(value) => formatTrendValue(value)} />
             <Legend />
             {!siteDownOnly && <Bar dataKey="cellDown" name="CellDown" fill="#e0301e" stackId="a" isAnimationActive={animate} />}
             <Bar dataKey="siteDown" name="SiteDown" fill="#0ea5e9" stackId="a" isAnimationActive={animate} />
-            <Line type="monotone" dataKey="total" name="Total" stroke="#0f172a" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={animate}>
+            <Line type="monotone" dataKey="total" name="Total" yAxisId="total" stroke="#0f172a" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={animate}>
               <LabelList dataKey="total" content={totalLabel} />
             </Line>
           </ComposedChart>

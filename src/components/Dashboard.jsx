@@ -59,21 +59,20 @@ export default function Dashboard({
   // Report PDF selalu Weekly. Ini daftar minggu yang punya data (dipakai dropdown di ExportModal).
   const getReportWeeks = useCallback(() => listReportPeriods(trendLog, trendCriteria, 'weekly'), [trendLog, trendCriteria]);
 
-  // Tampilan saja: 1 Regional + Category Cell Down/Site Down (sumber INAP) -> batang trend dipecah per NOP.
+  // Tampilan saja: 1 Regional -> batang trend dipecah per NOP.
   const nopSplit = useMemo(() => {
     const c = trendCriteria || {};
     const active =
-      sourceMode === SOURCE_INAP &&
       c.regionalFilter &&
-      c.regionalFilter !== ALL_KEY &&
-      (c.category === 'CellDown' || c.category === 'SiteDown');
+      c.regionalFilter !== ALL_KEY;
     if (!active) return null;
     const result = buildFilteredDailyTrendByNop(trendLog, c);
+    const categoryTitle = c.category === 'CellDown' ? 'Cell Down' : c.category === 'SiteDown' ? 'Site Down' : '';
     return {
       ...result,
-      title: `${c.category === 'CellDown' ? 'Cell Down' : 'Site Down'} ${c.regionalFilter} - per NOP`,
+      title: `${categoryTitle ? `${categoryTitle} ` : ''}${c.regionalFilter}`,
     };
-  }, [trendLog, trendCriteria, sourceMode]);
+  }, [trendLog, trendCriteria]);
 
   const handleConfirmExport = async ({ excel, pdf, reportKey, uploadDateFrom, uploadDateTo }) => {
     setExporting(true);
