@@ -45,7 +45,9 @@ export function computeSummary(rows) {
   // --- Site Class distribution ---
   const siteClassMap = new Map();
   for (const r of rows) {
-    const key = SITE_CLASS_ORDER.includes(r.siteClass) ? r.siteClass : r.siteClass || 'Unclassified';
+    const rawSiteClass = String(r.siteClass ?? '').trim();
+    const normalizedSiteClass = SITE_CLASS_ORDER.find((siteClass) => siteClass.toLowerCase() === rawSiteClass.toLowerCase());
+    const key = normalizedSiteClass || rawSiteClass || 'Unclassified';
     if (!siteClassMap.has(key)) siteClassMap.set(key, { siteClass: key, cellDown: 0, siteDown: 0 });
     const bucket = siteClassMap.get(key);
     if (isCellDown(r)) bucket.cellDown++;
