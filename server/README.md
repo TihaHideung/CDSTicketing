@@ -13,7 +13,7 @@ Pastikan MySQL/MariaDB sudah terinstall & jalan di komputer kamu (localhost).
 mysql -u root -p < schema.sql
 ```
 
-Ini akan membuat database `cds_monitoring` beserta semua tabelnya.
+Ini akan membuat database `cds_monitoring` beserta semua tabelnyaa.
 
 **Rekomendasi:** buat user khusus untuk aplikasi (jangan pakai root langsung), karena
 driver Node (`mysql2`) butuh autentikasi berbasis password, bukan `auth_socket` yang
