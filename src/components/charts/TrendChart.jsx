@@ -140,14 +140,14 @@
     );
   }
 
-  function DailyWeekRangeSelector({ weeks, startWeek, endWeek, onStartChange, onEndChange }) {
+  function WeekRangeSelector({ weeks, startWeek, endWeek, onStartChange, onEndChange, rangeType }) {
     if (!weeks.length) return null;
     return (
       <div className="inline-flex flex-wrap items-center gap-2 text-xs">
         <label className="flex items-center gap-1.5 text-slate-500">
           Dari
           <select
-            aria-label="Minggu awal trend harian"
+            aria-label={`Minggu awal trend ${rangeType}`}
             value={startWeek}
             onChange={(event) => onStartChange(event.target.value)}
             className="w-[76px] rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700"
@@ -158,7 +158,7 @@
         <label className="flex items-center gap-1.5 text-slate-500">
           Sampai
           <select
-            aria-label="Minggu akhir trend harian"
+            aria-label={`Minggu akhir trend ${rangeType}`}
             value={endWeek}
             onChange={(event) => onEndChange(event.target.value)}
             className="w-[76px] rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700"
@@ -195,6 +195,8 @@
     const rawData = isByNop ? dataByNop : isByRegion ? dataByRegion : dataSingle;
     const [dailyStartWeek, setDailyStartWeek] = useState('');
     const [dailyEndWeek, setDailyEndWeek] = useState('');
+    const [weeklyStartWeek, setWeeklyStartWeek] = useState('');
+    const [weeklyEndWeek, setWeeklyEndWeek] = useState('');
 
     const weeks = useMemo(() => {
       if (!rawData) return [];
@@ -209,6 +211,8 @@
 
     const selectedStartWeek = weeks.some((week) => week.key === dailyStartWeek) ? dailyStartWeek : weeks[0]?.key || '';
     const selectedEndWeek = weeks.some((week) => week.key === dailyEndWeek) ? dailyEndWeek : weeks[weeks.length - 1]?.key || '';
+    const selectedWeeklyStart = weeks.some((week) => week.key === weeklyStartWeek) ? weeklyStartWeek : weeks[0]?.key || '';
+    const selectedWeeklyEnd = weeks.some((week) => week.key === weeklyEndWeek) ? weeklyEndWeek : weeks[weeks.length - 1]?.key || '';
 
     const data = useMemo(() => {
       if (!rawData) return rawData;
@@ -219,14 +223,22 @@
     }, [rawData, isByNop, isByRegion, nops, regions, period]);
 
     const displayData = useMemo(() => {
-      if (period !== 'daily' || fixedPeriod || !weeks.length) return data;
-      const fromWeek = selectedStartWeek < selectedEndWeek ? selectedStartWeek : selectedEndWeek;
-      const toWeek = selectedStartWeek < selectedEndWeek ? selectedEndWeek : selectedStartWeek;
-      return data.filter((row) => {
-        const weekKey = getPeriodBucket(row.date, 'weekly').key;
-        return weekKey >= fromWeek && weekKey <= toWeek;
-      });
-    }, [data, period, fixedPeriod, weeks, selectedStartWeek, selectedEndWeek]);
+      if (fixedPeriod || !weeks.length) return data;
+      if (period === 'daily') {
+        const fromWeek = selectedStartWeek < selectedEndWeek ? selectedStartWeek : selectedEndWeek;
+        const toWeek = selectedStartWeek < selectedEndWeek ? selectedEndWeek : selectedStartWeek;
+        return data.filter((row) => {
+          const weekKey = getPeriodBucket(row.date, 'weekly').key;
+          return weekKey >= fromWeek && weekKey <= toWeek;
+        });
+      }
+      if (period === 'weekly') {
+        const fromWeek = selectedWeeklyStart < selectedWeeklyEnd ? selectedWeeklyStart : selectedWeeklyEnd;
+        const toWeek = selectedWeeklyStart < selectedWeeklyEnd ? selectedWeeklyEnd : selectedWeeklyStart;
+        return data.filter((row) => row.key >= fromWeek && row.key <= toWeek);
+      }
+      return data;
+    }, [data, period, fixedPeriod, weeks, selectedStartWeek, selectedEndWeek, selectedWeeklyStart, selectedWeeklyEnd]);
 
     const changeStartWeek = (weekKey) => {
       setDailyStartWeek(weekKey);
@@ -236,6 +248,16 @@
     const changeEndWeek = (weekKey) => {
       setDailyEndWeek(weekKey);
       if (weekKey < selectedStartWeek) setDailyStartWeek(weekKey);
+    };
+
+    const changeWeeklyStart = (weekKey) => {
+      setWeeklyStartWeek(weekKey);
+      if (weekKey > selectedWeeklyEnd) setWeeklyEndWeek(weekKey);
+    };
+
+    const changeWeeklyEnd = (weekKey) => {
+      setWeeklyEndWeek(weekKey);
+      if (weekKey < selectedWeeklyStart) setWeeklyStartWeek(weekKey);
     };
 
     if (!rawData || rawData.length < 1) {
@@ -279,7 +301,10 @@
             <div className="flex flex-wrap items-center gap-2">
               {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
               {!fixedPeriod && period === 'daily' && (
-                <DailyWeekRangeSelector weeks={weeks} startWeek={selectedStartWeek} endWeek={selectedEndWeek} onStartChange={changeStartWeek} onEndChange={changeEndWeek} />
+                <WeekRangeSelector weeks={weeks} startWeek={selectedStartWeek} endWeek={selectedEndWeek} onStartChange={changeStartWeek} onEndChange={changeEndWeek} rangeType="harian" />
+              )}
+              {!fixedPeriod && period === 'weekly' && (
+                <WeekRangeSelector weeks={weeks} startWeek={selectedWeeklyStart} endWeek={selectedWeeklyEnd} onStartChange={changeWeeklyStart} onEndChange={changeWeeklyEnd} rangeType="weekly" />
               )}
             </div>
           </div>
@@ -332,7 +357,10 @@
             <div className="flex flex-wrap items-center gap-2">
               {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
               {!fixedPeriod && period === 'daily' && (
-                <DailyWeekRangeSelector weeks={weeks} startWeek={selectedStartWeek} endWeek={selectedEndWeek} onStartChange={changeStartWeek} onEndChange={changeEndWeek} />
+                <WeekRangeSelector weeks={weeks} startWeek={selectedStartWeek} endWeek={selectedEndWeek} onStartChange={changeStartWeek} onEndChange={changeEndWeek} rangeType="harian" />
+              )}
+              {!fixedPeriod && period === 'weekly' && (
+                <WeekRangeSelector weeks={weeks} startWeek={selectedWeeklyStart} endWeek={selectedWeeklyEnd} onStartChange={changeWeeklyStart} onEndChange={changeWeeklyEnd} rangeType="weekly" />
               )}
             </div>
           </div>
@@ -389,7 +417,10 @@
           <div className="flex flex-wrap items-center gap-2">
             {!fixedPeriod && <PeriodSelector period={period} onChange={setPeriod} />}
             {!fixedPeriod && period === 'daily' && (
-              <DailyWeekRangeSelector weeks={weeks} startWeek={selectedStartWeek} endWeek={selectedEndWeek} onStartChange={changeStartWeek} onEndChange={changeEndWeek} />
+              <WeekRangeSelector weeks={weeks} startWeek={selectedStartWeek} endWeek={selectedEndWeek} onStartChange={changeStartWeek} onEndChange={changeEndWeek} rangeType="harian" />
+            )}
+            {!fixedPeriod && period === 'weekly' && (
+              <WeekRangeSelector weeks={weeks} startWeek={selectedWeeklyStart} endWeek={selectedWeeklyEnd} onStartChange={changeWeeklyStart} onEndChange={changeWeeklyEnd} rangeType="weekly" />
             )}
           </div>
         </div>

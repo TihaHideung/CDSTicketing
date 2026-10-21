@@ -73,6 +73,12 @@ export default function UploadPanel({
   noimCount,
   noimDate,
   onNoimDateChange,
+  trendCountFile,
+  onTrendCountFileChange,
+  onImportTrendCounts,
+  trendCountImporting,
+  trendCountImportMessage,
+  trendCountImportError,
   noimDates = [],
   noimBcTime,
   noimMessage,
@@ -191,6 +197,38 @@ export default function UploadPanel({
             <span className="text-sm text-navy-700 animate-pulse">{progressMessage}</span>
           )}
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <h2 className="font-semibold text-slate-800 mb-1">Impor Angka Trend W32-W38</h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Ambil angka harian per NOP dari sheet <span className="font-medium">Daily to Weekly</span>. Data masuk ke trend saja,
+          ditampilkan sebagai Cell Down over-24 jam, tanpa membuat ticket atau mengubah archive.
+        </p>
+        <div className="flex items-center gap-4 flex-wrap">
+          <FileSlot
+            label="Workbook Daily INAP"
+            hint="File .xlsx/.xls dengan sheet Daily to Weekly"
+            file={trendCountFile}
+            onChange={onTrendCountFileChange}
+          />
+          <button
+            type="button"
+            disabled={!trendCountFile || trendCountImporting}
+            onClick={onImportTrendCounts}
+            className="px-4 py-2 rounded-md bg-navy-900 text-white text-sm font-medium disabled:opacity-40"
+          >
+            {trendCountImporting ? 'Mengimpor...' : 'Impor ke Trend'}
+          </button>
+        </div>
+        {trendCountImportError && (
+          <div className="mt-4 text-sm bg-red-50 text-red-700 border border-red-200 rounded-md px-4 py-3">{trendCountImportError}</div>
+        )}
+        {trendCountImportMessage && (
+          <div className="mt-4 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md px-4 py-3">
+            {trendCountImportMessage}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-6">

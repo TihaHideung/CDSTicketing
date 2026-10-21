@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { X, FileSpreadsheet, FileText } from 'lucide-react';
+import { X, FileSpreadsheet, FileText, Presentation } from 'lucide-react';
 
 function Check({ checked, onChange, disabled, children, className = '' }) {
   return (
@@ -19,25 +19,32 @@ function Check({ checked, onChange, disabled, children, className = '' }) {
 }
 
 /**
- * Pop up pilihan export Dashboard. `onConfirm({ excel, pdf, reportKey, uploadDateFrom, uploadDateTo })`.
+ * Pop up pilihan export Dashboard. `onConfirm` menerima opsi Excel, PDF, dan PPTX.
  * PDF = laporan Weekly (1 minggu, Jumat-Kamis), bukan kumpulan grafik.
  * `getReportWeeks()` mengembalikan daftar minggu yang punya data: [{ key, label }] (terbaru dulu).
  * Komponen ini di-mount hanya saat dibuka, jadi pilihan selalu mulai dari default.
  */
-export default function ExportModal({ onClose, onConfirm, exporting, error, getReportWeeks }) {
+export default function ExportModal({ onClose, onConfirm, exporting, error, getReportWeeks, getWeeklyTrendWeeks }) {
   const [excel, setExcel] = useState(false);
   const [uploadDateFrom, setUploadDateFrom] = useState('');
   const [uploadDateTo, setUploadDateTo] = useState('');
   const [pdf, setPdf] = useState(false);
   const [reportKeyState, setReportKeyState] = useState(null);
+  const [trendWeekly, setTrendWeekly] = useState(false);
+  const [weekFromState, setWeekFromState] = useState(null);
+  const [weekToState, setWeekToState] = useState(null);
 
   const periodOptions = useMemo(() => (getReportWeeks ? getReportWeeks() : []), [getReportWeeks]);
+  const weeklyOptions = useMemo(() => (getWeeklyTrendWeeks ? getWeeklyTrendWeeks() : []), [getWeeklyTrendWeeks]);
   // Kalau pilihan belum ada, otomatis pakai minggu terbaru.
   const reportKey = periodOptions.some((o) => o.key === reportKeyState) ? reportKeyState : periodOptions[0]?.key || null;
   const reportReady = Boolean(reportKey);
+  const weekFrom = weeklyOptions.some((option) => option.key === weekFromState) ? weekFromState : weeklyOptions[0]?.key || null;
+  const weekTo = weeklyOptions.some((option) => option.key === weekToState) ? weekToState : weeklyOptions[0]?.key || null;
+  const weeklyReady = Boolean(weekFrom && weekTo && weekFrom <= weekTo);
 
   const uploadDateInvalid = excel && (!uploadDateFrom || !uploadDateTo || uploadDateFrom > uploadDateTo);
-  const canExport = !exporting && !uploadDateInvalid && (excel || (pdf && reportReady)) && !(pdf && !reportReady);
+  const canExport = !exporting && !uploadDateInvalid && (excel || (pdf && reportReady) || (trendWeekly && weeklyReady)) && !(pdf && !reportReady) && !(trendWeekly && !weeklyReady);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -130,6 +137,48 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               </div>
             )}
           </div>
+
+          <div className="rounded-lg border border-slate-200 p-3">
+            <Check checked={trendWeekly} onChange={setTrendWeekly} disabled={exporting}>
+              <Presentation size={16} className="text-navy-700" />
+              <span className="font-medium">Trend Weekly Cell Down (.pptx)</span>
+            </Check>
+            <p className="ml-6 mt-1 text-xs text-slate-400">
+              Empat chart Area 1: semua regional dan masing-masing regional, dengan rata-rata harian per minggu.
+            </p>
+            {trendWeekly && (
+              <div className="ml-6 mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="text-xs font-medium text-slate-600">
+                  Minggu awal
+                  <select
+                    value={weekFrom || ''}
+                    onChange={(event) => setWeekFromState(event.target.value)}
+                    disabled={exporting || !weeklyOptions.length}
+                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
+                  >
+                    {weeklyOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-slate-600">
+                  Minggu akhir
+                  <select
+                    value={weekTo || ''}
+                    onChange={(event) => setWeekToState(event.target.value)}
+                    disabled={exporting || !weeklyOptions.length}
+                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
+                  >
+                    {weeklyOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                  </select>
+                </label>
+                {!weeklyOptions.length && (
+                  <p className="text-[11px] text-red-500 sm:col-span-2">Belum ada data Cell Down untuk dibuatkan trend weekly.</p>
+                )}
+                {weeklyOptions.length > 0 && !weeklyReady && (
+                  <p className="text-[11px] text-red-500 sm:col-span-2">Minggu awal harus sama dengan atau lebih lama dari minggu akhir.</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {error && (
@@ -148,7 +197,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
           <button
             type="button"
             disabled={!canExport}
-            onClick={() => onConfirm({ excel, pdf, reportKey, uploadDateFrom, uploadDateTo })}
+            onClick={() => onConfirm({ excel, pdf, trendWeekly, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo })}
             className="rounded-md bg-brand-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {exporting ? 'Mengekspor...' : 'Export'}
@@ -157,7 +206,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
         {!excel && pdf && !reportReady && (
           <p className="mt-2 text-right text-xs text-slate-400">Belum ada minggu yang punya data untuk filter ini.</p>
         )}
-        {!excel && !pdf && <p className="mt-2 text-right text-xs text-slate-400">Pilih minimal satu format export.</p>}
+        {!excel && !pdf && !trendWeekly && <p className="mt-2 text-right text-xs text-slate-400">Pilih minimal satu format export.</p>}
       </div>
     </div>
   );

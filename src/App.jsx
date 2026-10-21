@@ -17,6 +17,7 @@ import { exportWorkbook } from './lib/exportExcel.js';
 import { REGIONS, MASTER_COLUMNS, matchesRegionalTag, RC_CATEGORIES, RC_STRUCTURE, PIC_OPTIONS, getSubcategoriesFor, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, SOURCE_NOT_BOTH, DEFAULT_DURATION_FILTER, DEFAULT_SOURCE_FILTER } from './lib/constants.js';
 import { noimToViewRows, buildNoimSiteSet, normalizeSiteId, computeSourceStats } from './lib/noim.js';
 import { buildSourceTrendLog } from './lib/siteDownTrend.js';
+import { readTrendCountFile } from './lib/importTrendCounts.js';
 import {
   getActiveTickets,
   getArchiveHistory,
@@ -114,6 +115,10 @@ export default function App() {
   const [noimUploading, setNoimUploading] = useState(false);
   const [noimMessage, setNoimMessage] = useState('');
   const [noimError, setNoimError] = useState('');
+  const [trendCountFile, setTrendCountFile] = useState(null);
+  const [trendCountImporting, setTrendCountImporting] = useState(false);
+  const [trendCountImportMessage, setTrendCountImportMessage] = useState('');
+  const [trendCountImportError, setTrendCountImportError] = useState('');
   const [noimRows, setNoimRows] = useState([]);
   const [noimDate, setNoimDate] = useState(() => getUploadDateKey()); // tanggal data NOIM yang akan diupload
   const [noimDates, setNoimDates] = useState([]); // tanggal NOIM yang tersimpan: [{date,count}]
@@ -422,6 +427,28 @@ export default function App() {
       setNoimUploading(false);
     }
   }, [noimFile, noimDate, refreshAll]);
+
+  const handleImportTrendCounts = useCallback(async () => {
+    if (!trendCountFile) return;
+    setTrendCountImportError('');
+    setTrendCountImportMessage('');
+    setTrendCountImporting(true);
+    try {
+      const entries = await readTrendCountFile(trendCountFile);
+      const existingDates = new Set(dailyTrendLog.map((entry) => String(entry.date).slice(0, 10)));
+      const replacements = entries.filter((entry) => existingDates.has(entry.date));
+      if (replacements.length && !window.confirm(`Trend pada ${replacements.length} tanggal akan diganti dengan angka total-only dari file. Lanjutkan?`)) return;
+
+      await Promise.all(entries.map((entry) => upsertDailyTrendEntry(entry)));
+      await refreshAll({ refreshUploadTimestamp: false });
+      setTrendCountFile(null);
+      setTrendCountImportMessage(`${entries.length} tanggal W32-W38 berhasil diimpor ke trend sebagai Cell Down over-24 jam. Data ticket/archive tidak diubah.`);
+    } catch (err) {
+      setTrendCountImportError(err?.message || String(err));
+    } finally {
+      setTrendCountImporting(false);
+    }
+  }, [trendCountFile, dailyTrendLog, refreshAll]);
 
   function shiftDateKey(key, days) {
     const d = new Date(`${key}T00:00:00Z`);
@@ -836,6 +863,16 @@ export default function App() {
           noimCount={noimSiteSet.size}
           noimDate={noimDate}
           onNoimDateChange={setNoimDate}
+          trendCountFile={trendCountFile}
+          onTrendCountFileChange={(file) => {
+            setTrendCountFile(file);
+            setTrendCountImportMessage('');
+            setTrendCountImportError('');
+          }}
+          onImportTrendCounts={handleImportTrendCounts}
+          trendCountImporting={trendCountImporting}
+          trendCountImportMessage={trendCountImportMessage}
+          trendCountImportError={trendCountImportError}
           noimDates={noimDates}
           noimBcTime={sourceStats.bcTime}
           noimMessage={noimMessage}

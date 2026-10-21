@@ -252,6 +252,17 @@ export function hasGranularFilter(criteria) {
   return Boolean(nop || cluster || category || (duration && duration.length) || rc || rcSub || rcUnset);
 }
 
+function canShowTotalOnlyTrend(criteria) {
+  const duration = criteria.duration || [];
+  const over24Buckets = DURATION_BUCKETS.slice(2);
+  return (!criteria.category || criteria.category === 'CellDown') &&
+    !criteria.cluster &&
+    over24Buckets.every((bucket) => duration.includes(bucket)) &&
+    !criteria.rc &&
+    !criteria.rcSub &&
+    !criteria.rcUnset;
+}
+
 /**
  * Trend harian TOTAL, mengikuti SEMUA filter Dashboard yang aktif (Regional, NOP,
  * Cluster, Category, Duration, RC, RC Sub) — bukan cuma filter Regional seperti
@@ -267,6 +278,18 @@ export function buildFilteredDailyTrend(dailyTrendLog, criteria = {}) {
   const result = [];
 
   for (const entry of dailyTrendLog) {
+    if (entry?.breakdown?.some((item) => item.totalOnly)) {
+      if (!canShowTotalOnlyTrend(criteria)) continue;
+
+      let total = 0;
+      for (const item of entry.breakdown) {
+        if ((regionalFilter && regionalFilter !== 'ALL' && !matchesRegionalTag(item.regional, regionalFilter)) || (criteria.nop && item.nop !== criteria.nop)) continue;
+        total += Number(item.count) || 0;
+      }
+      result.push({ date: entry.date, cellDown: total, siteDown: 0, total });
+      continue;
+    }
+
     if (Array.isArray(entry?.breakdown) && (entry.breakdown.length || entry.complete)) {
       let cellDown = 0;
       let siteDown = 0;
@@ -304,6 +327,20 @@ export function buildFilteredDailyTrendByRegion(dailyTrendLog, regions, criteria
   const result = [];
 
   for (const entry of dailyTrendLog) {
+    if (entry?.breakdown?.some((item) => item.totalOnly)) {
+      if (!canShowTotalOnlyTrend(criteria)) continue;
+
+      const point = { date: entry.date };
+      for (const reg of regions) point[reg] = 0;
+      for (const item of entry.breakdown) {
+        if (criteria.nop && item.nop !== criteria.nop) continue;
+        const reg = regions.find((region) => matchesRegionalTag(item.regional, region));
+        if (reg) point[reg] += Number(item.count) || 0;
+      }
+      result.push(point);
+      continue;
+    }
+
     if (Array.isArray(entry?.breakdown) && (entry.breakdown.length || entry.complete)) {
       const point = { date: entry.date };
       for (const reg of regions) point[reg] = 0;
@@ -434,6 +471,7 @@ export function aggregateTrendByPeriod(dailyData, period) {
   return Array.from(buckets.values())
     .sort((a, b) => (a.key > b.key ? 1 : -1))
     .map((b) => ({
+      key: b.key,
       date: b.label,
       cellDown: Math.ceil(b.cellDown / b.days),
       siteDown: Math.ceil(b.siteDown / b.days),
@@ -464,7 +502,7 @@ export function aggregateTrendByRegionByPeriod(dailyData, regions, period) {
   return Array.from(buckets.values())
     .sort((a, b) => (a.key > b.key ? 1 : -1))
     .map((b) => {
-      const point = { date: b.label };
+      const point = { key: b.key, date: b.label };
       for (const reg of regions) point[reg] = Math.ceil(b.sums[reg] / b.days);
       return point;
     });
@@ -490,6 +528,23 @@ export function buildFilteredDailyTrendByNop(dailyTrendLog, criteria = {}) {
   const nopSet = new Set();
 
   for (const entry of dailyTrendLog || []) {
+    if (entry?.breakdown?.some((item) => item.totalOnly)) {
+      if (!canShowTotalOnlyTrend(criteria)) continue;
+
+      const byNop = {};
+      let total = 0;
+      for (const item of entry.breakdown) {
+        if ((regionalFilter && regionalFilter !== 'ALL' && !matchesRegionalTag(item.regional, regionalFilter)) || (criteria.nop && item.nop !== criteria.nop)) continue;
+        const nop = item.nop || 'Tanpa NOP';
+        const count = Number(item.count) || 0;
+        byNop[nop] = (byNop[nop] || 0) + count;
+        total += count;
+        nopSet.add(nop);
+      }
+      rows.push({ date: entry.date, total, byNop });
+      continue;
+    }
+
     if (!(Array.isArray(entry?.breakdown) && (entry.breakdown.length || entry.complete))) continue;
     const byNop = {};
     let total = 0;
@@ -535,7 +590,7 @@ export function aggregateTrendByNopByPeriod(rows, nops, period) {
   return Array.from(buckets.values())
     .sort((a, b) => (a.key > b.key ? 1 : -1))
     .map((b) => {
-      const point = { date: b.label, total: period === 'daily' ? b.total : Math.ceil(b.total / b.days) };
+      const point = { key: b.key, date: b.label, total: period === 'daily' ? b.total : Math.ceil(b.total / b.days) };
       for (const nop of nops) point[NOP_KEY_PREFIX + nop] = b.sums[nop] / b.days;
       return point;
     });

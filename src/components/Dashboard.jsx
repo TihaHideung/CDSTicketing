@@ -10,7 +10,7 @@ import RcCategoryBar from './charts/RcCategoryBar.jsx';
 import TrendChart from './charts/TrendChart.jsx';
 import { REGIONS, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, SOURCE_NOT_BOTH } from '../lib/constants.js';
 import { ALL_KEY } from './FilterBar.jsx';
-import { buildFilteredDailyTrendByNop, buildFilteredDailyTrendByRegion } from '../lib/aggregate.js';
+import { buildFilteredDailyTrendByNop, buildFilteredDailyTrendByRegion, getPeriodBucket } from '../lib/aggregate.js';
 import { buildReport, listReportPeriods } from '../lib/reportAnalysis.js';
 import { exportReportPdf } from '../lib/reportPdf.js';
 
@@ -59,6 +59,43 @@ export default function Dashboard({
 
   // Report PDF selalu Weekly. Ini daftar minggu yang punya data (dipakai dropdown di ExportModal).
   const getReportWeeks = useCallback(() => listReportPeriods(trendLog, trendCriteria, 'weekly'), [trendLog, trendCriteria]);
+  const weeklyTrendRows = useMemo(() => {
+    if (sourceMode !== SOURCE_INAP) return [];
+    const criteria = { ...trendCriteria, regionalFilter: ALL_KEY, category: 'CellDown' };
+    const dailyRows = buildFilteredDailyTrendByRegion(trendLog, REGIONS, criteria);
+    const buckets = new Map();
+    for (const row of dailyRows) {
+      const period = getPeriodBucket(row.date, 'weekly');
+      if (!buckets.has(period.key)) {
+        buckets.set(period.key, {
+          key: period.key,
+          label: period.label,
+          sums: Object.fromEntries(REGIONS.map((region) => [region, 0])),
+          days: 0,
+        });
+      }
+      const bucket = buckets.get(period.key);
+      for (const region of REGIONS) bucket.sums[region] += Number(row[region]) || 0;
+      bucket.days++;
+    }
+    return Array.from(buckets.values())
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map((bucket) => {
+        const endDate = new Date(`${bucket.key}T00:00:00`);
+        endDate.setDate(endDate.getDate() + 6);
+        const dateTo = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+        return {
+          key: bucket.key,
+          label: bucket.label,
+          rangeLabel: `${bucket.label} (${bucket.key} - ${dateTo})`,
+          values: Object.fromEntries(REGIONS.map((region) => [region, Math.ceil(bucket.sums[region] / bucket.days)])),
+        };
+      });
+  }, [sourceMode, trendLog, trendCriteria]);
+  const getWeeklyTrendWeeks = useCallback(
+    () => weeklyTrendRows.slice().reverse().map(({ key, rangeLabel }) => ({ key, label: rangeLabel })),
+    [weeklyTrendRows]
+  );
 
   // Tampilan saja: 1 Regional -> batang trend dipecah per NOP.
   const nopSplit = useMemo(() => {
@@ -75,7 +112,7 @@ export default function Dashboard({
     };
   }, [trendLog, trendCriteria]);
 
-  const handleConfirmExport = async ({ excel, pdf, reportKey, uploadDateFrom, uploadDateTo }) => {
+  const handleConfirmExport = async ({ excel, pdf, trendWeekly, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo }) => {
     setExporting(true);
     setExportError('');
     try {
@@ -156,6 +193,17 @@ export default function Dashboard({
           })),
           fileName: `CDS_Monitoring_Laporan_Weekly_${pages[0].report.periodKey}_${label}.pdf`,
           filterText: describeFilters(filters, { withType: false }),
+        });
+      }
+      if (trendWeekly) {
+        const selectedWeeks = weeklyTrendRows.filter((row) => row.key >= weekFrom && row.key <= weekTo);
+        if (!selectedWeeks.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
+        const { exportWeeklyTrendPpt } = await import('../lib/exportWeeklyTrendPpt.js');
+        await exportWeeklyTrendPpt({
+          rows: weeklyTrendRows,
+          fromWeek: weekFrom,
+          toWeek: weekTo,
+          fileName: `CDS_Monitoring_Trend_Weekly_Cell_Down_Area_1_${selectedWeeks[0].label}_${selectedWeeks[selectedWeeks.length - 1].label}.pptx`,
         });
       }
       setShowExport(false);
@@ -309,6 +357,7 @@ export default function Dashboard({
           exporting={exporting}
           error={exportError}
           getReportWeeks={getReportWeeks}
+          getWeeklyTrendWeeks={getWeeklyTrendWeeks}
         />
       )}
 
