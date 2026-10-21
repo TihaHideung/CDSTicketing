@@ -650,6 +650,8 @@ export default function App() {
     exportWorkbook({
       cleanRows: rows,
       summary,
+      uploadDateFrom,
+      uploadDateTo,
       fileName: `CDS_Monitoring_${label}_${uploadDateFrom}_sd_${uploadDateTo}.xlsx`,
     });
   }, [effectiveSource, regionalFilter, getArchiveHistory, noimSiteSet, nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, dateFrom, dateTo]);

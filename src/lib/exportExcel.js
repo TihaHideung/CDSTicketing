@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { DURATION_BUCKETS } from './constants.js';
+import { DURATION_BUCKETS, REGIONS, getRegionalCodeForTag, getRegionalTagFromValue } from './constants.js';
 
 function fmtDate(d) {
   if (!d) return '';
@@ -33,6 +33,87 @@ function buildRawSheet(rows) {
     'EMS Name': r.emsName,
   }));
   return XLSX.utils.json_to_sheet(data);
+}
+
+function getDateKeys(from, to, rows) {
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(from || '') ? from : '';
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(to || '') ? to : '';
+  if (start && end && start <= end) {
+    const dates = [];
+    const cursor = new Date(`${start}T00:00:00Z`);
+    const last = new Date(`${end}T00:00:00Z`);
+    while (cursor <= last) {
+      dates.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return dates;
+  }
+  return [...new Set(rows.map((row) => String(row.uploadDate || '').slice(0, 10)).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)))].sort();
+}
+
+function formatDayHeader(dateKey) {
+  const [, month, day] = dateKey.split('-');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${Number(day)}-${months[Number(month) - 1]}`;
+}
+
+function buildDailyNopSheet(rows, dateFrom, dateTo) {
+  const dates = getDateKeys(dateFrom, dateTo, rows);
+  const dateIndex = new Map(dates.map((date, index) => [date, index]));
+  const regionalGroups = new Map();
+
+  for (const row of rows) {
+    const regionalTag = getRegionalTagFromValue(row.regional) || String(row.regional || 'UNKNOWN');
+    const regional = getRegionalCodeForTag(regionalTag) || regionalTag;
+    if (!regionalGroups.has(regional)) regionalGroups.set(regional, new Map());
+    const nops = regionalGroups.get(regional);
+    const nop = String(row.nop || 'UNKNOWN').trim();
+    if (!nops.has(nop)) {
+      nops.set(nop, {
+        CellDown: Array(dates.length).fill(0),
+        SiteDown: Array(dates.length).fill(0),
+      });
+    }
+
+    const date = String(row.uploadDate || '').slice(0, 10);
+    const index = dateIndex.get(date);
+    if (index !== undefined && nops.get(nop)[row.catAlarm]) nops.get(nop)[row.catAlarm][index]++;
+  }
+
+  const regionalOrder = (regional) => {
+    const tag = getRegionalTagFromValue(regional);
+    const index = REGIONS.indexOf(tag);
+    return index === -1 ? REGIONS.length : index;
+  };
+  const aoa = [];
+  for (const [category, title] of [['CellDown', 'CELL DOWN - TIKET PER NOP PER HARI'], ['SiteDown', 'SITE DOWN - TIKET PER NOP PER HARI']]) {
+    aoa.push([title]);
+    aoa.push(['Regional', 'NOP', ...dates.map(formatDayHeader), 'Total']);
+    const grandTotal = Array(dates.length).fill(0);
+
+    const sortedRegions = [...regionalGroups.keys()].sort((a, b) => regionalOrder(a) - regionalOrder(b) || a.localeCompare(b));
+    for (const regional of sortedRegions) {
+      const nops = regionalGroups.get(regional);
+      const regionalTotal = Array(dates.length).fill(0);
+      const entries = [...nops.entries()].sort(([a], [b]) => a.localeCompare(b, 'id'));
+      for (const [nop, countsByCategory] of entries) {
+        const counts = countsByCategory[category];
+        counts.forEach((count, index) => {
+          regionalTotal[index] += count;
+          grandTotal[index] += count;
+        });
+        aoa.push([regional, nop, ...counts, counts.reduce((sum, count) => sum + count, 0)]);
+      }
+      aoa.push([regional, 'Total', ...regionalTotal, regionalTotal.reduce((sum, count) => sum + count, 0)]);
+    }
+
+    aoa.push(['Grand Total', '', ...grandTotal, grandTotal.reduce((sum, count) => sum + count, 0)]);
+    aoa.push([]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 16 }, { wch: 28 }, ...dates.map(() => ({ wch: 12 })), { wch: 12 }];
+  return ws;
 }
 
 function buildPivotSheet(summary) {
@@ -95,10 +176,11 @@ function buildPivotSheet(summary) {
   return ws;
 }
 
-export function exportWorkbook({ cleanRows, summary, fileName }) {
+export function exportWorkbook({ cleanRows, summary, fileName, uploadDateFrom, uploadDateTo }) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, buildRawSheet(cleanRows), 'RAW_Clean');
   XLSX.utils.book_append_sheet(wb, buildPivotSheet(summary), 'Pivot_Summary');
+  XLSX.utils.book_append_sheet(wb, buildDailyNopSheet(cleanRows, uploadDateFrom, uploadDateTo), 'Daily_By_NOP');
   const name = fileName || `CDS_Monitoring_${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(wb, name);
 }
