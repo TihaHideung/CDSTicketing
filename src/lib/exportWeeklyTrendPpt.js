@@ -325,11 +325,6 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
     isTextBox: true, objectName: 'Total Angka',
   });
   addBadge(slide, buildDelta(lastTotal, prevTotal, prevRow?.label, true), 0.89, 2.51, 2.75, 'Total Badge');
-  slide.addText('Rata-rata harian per minggu', {
-    x: 0.89, y: 2.9, w: 2.75, h: 0.22, margin: 0,
-    fontFace: FONT, fontSize: 10, color: C.muted,
-    isTextBox: true, objectName: 'Total Catatan',
-  });
 
   // chart1.xml = total
   const chartSpecs = [];

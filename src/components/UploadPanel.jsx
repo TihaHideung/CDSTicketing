@@ -16,7 +16,7 @@ function FileSlot({ label, hint, file, onChange }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-medium text-slate-800">{label}</div>
-          <div className="text-xs text-slate-400">{hint}</div>
+          {hint && <div className="text-xs text-slate-400">{hint}</div>}
         </div>
         <button
           onClick={() => inputRef.current?.click()}
@@ -154,7 +154,7 @@ export default function UploadPanel({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FileSlot
-            label="Merge CellDown + SiteDown"
+            label="Cell & Site Down"
             hint="File gabungan"
             file={mergeFile}
             onChange={onMergeFileChange}
@@ -195,11 +195,6 @@ export default function UploadPanel({
 
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h2 className="font-semibold text-slate-800 mb-1">Data NOIM</h2>
-        <p className="text-sm text-slate-500 mb-4">
-          Data Site Down versi NOIM, dipakai sebagai pembanding hasil validasi INAP &amp; SWFM di Dashboard.
-          Pilih <span className="font-medium">tanggal data</span> NOIM yang diupload. Data tersimpan terus per tanggal;
-          upload ulang di tanggal yang sama hanya <span className="font-medium">menggantikan</span> data tanggal itu.
-        </p>
         <div className="mb-4 flex items-center gap-3 flex-wrap">
           <label htmlFor="noim-date" className="text-sm font-medium text-slate-800">
             Tanggal data NOIM
@@ -220,7 +215,6 @@ export default function UploadPanel({
         <div className="flex items-center gap-4 flex-wrap">
           <FileSlot
             label="Data NOIM (Excel/CSV)"
-            hint="Kolom wajib: Site ID, Start Time, Duration (+ Regional, NOP, Ticket, RC Category Validasi, dst). Dapat berupa .xlsx, .xls, atau .csv"
             file={noimFile}
             onChange={onNoimFileChange}
           />
@@ -238,13 +232,6 @@ export default function UploadPanel({
             </span>
           )}
         </div>
-        {noimDates.length > 0 && (
-          <div className="mt-4 text-xs text-slate-500">
-            <span className="font-medium text-slate-700">Tanggal tersimpan ({noimDates.length}): </span>
-            {noimDates.slice(0, 14).map((d) => `${d.date} (${d.count.toLocaleString('id-ID')})`).join(' · ')}
-            {noimDates.length > 14 ? ` · +${noimDates.length - 14} tanggal lainnya` : ''}
-          </div>
-        )}
         {noimError && (
           <div className="mt-4 text-sm bg-red-50 text-red-700 border border-red-200 rounded-md px-4 py-3">{noimError}</div>
         )}
@@ -263,7 +250,6 @@ export default function UploadPanel({
         <div className="flex items-center gap-4 flex-wrap">
           <FileSlot
             label="ExportMasterSiteDetail (Excel/CSV)"
-            hint="Kolom wajib: Site ID, Cluster (+ Site Name, NOP, Regional, Site Class). Dapat berupa .xlsx, .xls, atau .csv"
             file={masterFile}
             onChange={onMasterFileChange}
           />

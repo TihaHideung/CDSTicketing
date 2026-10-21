@@ -68,7 +68,6 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               <FileSpreadsheet size={16} className="text-emerald-600" />
               <span className="font-medium">Excel (.xlsx)</span>
             </Check>
-            <p className="ml-6 mt-1 text-xs text-slate-400">Data snapshot upload, ringkasan, dan trend berdasarkan tanggal upload.</p>
             {excel && (
               <div className="ml-6 mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="text-xs font-medium text-slate-600">
@@ -108,9 +107,6 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               <FileText size={16} className="text-brand-red" />
               <span className="font-medium">PDF (Report)</span>
             </Check>
-            <p className="ml-6 mt-1 text-xs text-slate-400">
-              Laporan mingguan ringkas, Cell Down &amp; Site Down dipisah: trend mingguan &amp; harian, kenaikan/penurunan tertinggi beserta NOP penyebabnya.
-            </p>
 
             {pdf && (
               <div className="ml-6 mt-3 space-y-2 border-t border-slate-100 pt-3">
@@ -143,9 +139,6 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               <Presentation size={16} className="text-navy-700" />
               <span className="font-medium">Trend Weekly Cell Down (.pptx)</span>
             </Check>
-            <p className="ml-6 mt-1 text-xs text-slate-400">
-              Empat chart Area 1: semua regional dan masing-masing regional, dengan rata-rata harian per minggu.
-            </p>
             {trendWeekly && (
               <div className="ml-6 mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="text-xs font-medium text-slate-600">
