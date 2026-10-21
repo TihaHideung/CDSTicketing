@@ -1,113 +1,375 @@
 import pptxgen from 'pptxgenjs';
+import JSZip from 'jszip';
 import { REGIONS } from './constants.js';
 
-const REGION_COLORS = {
-  Sumbagut: 'E0301E',
-  Sumbagteng: '0EA5E9',
-  Sumbagsel: '22C55E',
+/*
+ * Export "Trend Weekly Cell Down | Area 1 & Regional"
+ * Layout mengikuti PPT Area 4 (13.33" x 7.5"):
+ *   - kartu atas   : total semua regional (angka besar + badge selisih + line chart)
+ *   - 3 kartu bawah: Sumbagut / Sumbagteng / Sumbagsel (angka + badge + line chart)
+ * Label nilai pada titik tertentu (awal, puncak, tengah, akhir) dibuat sebagai data label
+ * native PowerPoint lewat post-process XML chart, jadi tetap menempel ke titik datanya.
+ */
+
+const AREA_LABEL = 'Area 1';
+
+const FONT = 'IBM Plex Sans';
+const TITLE_FONT = 'Poppins';
+
+const C = {
+  topBar: 'BE133E',
+  titleRed: 'BE1540',
+  titleBlue: '012E98',
+  card: 'FCFCFA',
+  cardLine: 'E1E0D9',
+  ink: '14202B',
+  muted: '66707C',
+  accent: '1C5CAB',
+  totalLine: 'E8710A',
+  upBg: 'FCE8E6',
+  upText: 'C00000',
+  downBg: 'E4F2E4',
+  downText: '006300',
+  flatBg: 'EEF1F4',
+  flatText: '475569',
+  axis: '66707C',
+  axisLine: 'D5D8DC',
 };
 
-function makeSeries(rows, regions) {
-  const labels = rows.map((row) => row.label);
-  return regions.map((region) => ({
-    name: region,
+// Warna garis & tint label per regional. Ganti di sini kalau ingin warna lain.
+const REGION_STYLE = {
+  Sumbagut: { line: 'E0301E', tint: 'FBD9D5' },
+  Sumbagteng: { line: '0070C0', tint: 'D6E9F7' },
+  Sumbagsel: { line: '00B050', tint: 'D5F0DE' },
+};
+const FALLBACK_STYLE = { line: '64748B', tint: 'E2E8F0' };
+
+const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n));
+
+// ---------------------------------------------------------------- data helpers
+
+function buildSeries(rows) {
+  const labels = rows.map((r) => r.label);
+  const byRegion = Object.fromEntries(
+    REGIONS.map((region) => [region, rows.map((r) => Number(r.values?.[region]) || 0)])
+  );
+  const total = rows.map((_, i) => REGIONS.reduce((sum, region) => sum + byRegion[region][i], 0));
+  return { labels, byRegion, total };
+}
+
+// Selisih minggu terakhir terhadap minggu sebelumnya (boleh di luar rentang terpilih).
+function buildDelta(lastValue, prevValue, prevLabel, withPrevValue = false) {
+  if (prevValue == null) return { text: 'Belum ada data minggu sebelumnya', kind: 'flat' };
+  const diff = lastValue - prevValue;
+  const suffix = withPrevValue ? ` (${fmt(prevValue)})` : '';
+  if (diff === 0) return { text: `Tetap vs ${prevLabel}${suffix}`, kind: 'flat' };
+  const word = diff > 0 ? 'Naik' : 'Turun';
+  const unit = withPrevValue ? 'Cells' : 'Cell';
+  return { text: `${word} ${fmt(Math.abs(diff))} ${unit} vs ${prevLabel}${suffix}`, kind: diff > 0 ? 'up' : 'down' };
+}
+
+// Titik yang diberi label: awal (opsional), puncak, titik tengah (opsional), akhir.
+function pickLabelIndexes(values, { first = false, mid = false } = {}) {
+  const last = values.length - 1;
+  const set = new Set([last]);
+  let peak = 0;
+  values.forEach((v, i) => {
+    if (v > values[peak]) peak = i;
+  });
+  set.add(peak);
+  if (first && peak > 2) set.add(0); // kalau puncak menempel di awal, cukup satu label
+  if (mid && values.length >= 9) {
+    const m = Math.round(last / 2);
+    if ([...set].every((i) => Math.abs(i - m) > 3)) set.add(m);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+// ---------------------------------------------------------------- chart data labels
+
+function dLblXml(idx, text, { size, bold, color, fill }) {
+  const sp = fill
+    ? `<c:spPr><a:solidFill><a:srgbClr val="${fill}"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr>`
+    : '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>';
+  const rPr = `sz="${size}" b="${bold ? 1 : 0}"`;
+  const fillXml = `<a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:latin typeface="${FONT}"/>`;
+  const tx = text
+    ? `<c:tx><c:rich><a:bodyPr wrap="none"/><a:lstStyle/><a:p><a:r><a:rPr lang="id-ID" ${rPr}>${fillXml}</a:rPr>` +
+      `<a:t>${text}</a:t></a:r></a:p></c:rich></c:tx>`
+    : '';
+  return (
+    `<c:dLbl><c:idx val="${idx}"/>${tx}${sp}` +
+    `<c:txPr><a:bodyPr wrap="none"/><a:lstStyle/><a:p><a:pPr><a:defRPr ${rPr}>${fillXml}</a:defRPr></a:pPr>` +
+    '<a:endParaRPr lang="en-US"/></a:p></c:txPr>' +
+    '<c:dLblPos val="t"/><c:showLegendKey val="0"/><c:showVal val="1"/><c:showCatName val="0"/>' +
+    '<c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbl>'
+  );
+}
+
+// Hanya titik di `spec.indexes` yang tampil; sisanya showVal=0.
+function dLblsXml(spec) {
+  const items = spec.indexes
+    .map((idx) => dLblXml(idx, spec.format ? spec.format(spec.labels[idx], spec.values[idx]) : null, spec.style))
+    .join('');
+  return (
+    `<c:dLbls>${items}<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>` +
+    '<c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/><c:showSerName val="0"/>' +
+    '<c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbls>'
+  );
+}
+
+// pptxgenjs menamai file chart berurutan sesuai urutan addChart (chart1.xml, chart2.xml, ...).
+async function injectDataLabels(arrayBuffer, chartSpecs) {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  for (let i = 0; i < chartSpecs.length; i++) {
+    const path = `ppt/charts/chart${i + 1}.xml`;
+    const file = zip.file(path);
+    if (!file) continue;
+    const replacement = dLblsXml(chartSpecs[i]);
+    let xml = await file.async('string');
+    // Ganti dLbls milik series (di dalam <c:ser>), bukan dLbls level chart.
+    xml = xml.replace('<c:crossBetween val="between"/>', '<c:crossBetween val="midCat"/>');
+    xml = xml.replace('<a:bodyPr rot="16200000"/>', '<a:bodyPr rot="-5400000" vert="horz"/>');
+    xml = xml.replace(/(<c:ser>[\s\S]*?)<c:dLbls>[\s\S]*?<\/c:dLbls>([\s\S]*?<\/c:ser>)/, `$1${replacement}$2`);
+    zip.file(path, xml);
+  }
+  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
+}
+
+// ---------------------------------------------------------------- slide building
+
+function addBadge(slide, delta, x, y, w, objectName) {
+  const palette = {
+    up: { fill: C.upBg, color: C.upText }, // cell down naik = buruk -> merah
+    down: { fill: C.downBg, color: C.downText }, // turun = bagus -> hijau
+    flat: { fill: C.flatBg, color: C.flatText },
+  }[delta.kind];
+  slide.addText(delta.text, {
+    x, y, w, h: 0.3,
+    shape: 'roundRect',
+    rectRadius: 0.08,
+    fill: { color: palette.fill },
+    line: { color: palette.fill, width: 0.5 },
+    fontFace: FONT,
+    fontSize: 12,
+    bold: true,
+    color: palette.color,
+    align: 'center',
+    valign: 'middle',
+    margin: 0,
+    fit: 'shrink',
+    objectName,
+  });
+}
+
+function chartOptions({ x, y, w, h, color, max, skip }) {
+  return {
+    x, y, w, h,
+    showTitle: false,
+    showLegend: false,
+    chartColors: [color],
+    lineSize: 1.75,
+    lineDataSymbol: 'circle',
+    lineDataSymbolSize: 5,
+    lineSmooth: false,
+    showValue: false,
+    valAxisHidden: true,
+    valAxisMinVal: 0,
+    valAxisMaxVal: max,
+    valGridLine: { style: 'none' },
+    catGridLine: { color: 'E3E4E0', size: 0.5, style: 'solid' }, // garis vertikal tiap minggu
+    catAxisLabelFontFace: FONT,
+    catAxisLabelFontSize: 8,
+    catAxisLabelColor: C.axis,
+    catAxisLabelRotate: 270,
+    catAxisLabelFrequency: skip,
+    catAxisLineShow: true,
+    catAxisLineColor: C.axisLine,
+    showCatAxisTitle: false,
+    showValAxisTitle: false,
+    showBorder: false,
+  };
+}
+
+export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData }) {
+  const allRows = rows.slice().sort((a, b) => a.key.localeCompare(b.key));
+  const selected = allRows.filter((row) => row.key >= fromWeek && row.key <= toWeek);
+  if (!selected.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
+
+  const lastIdxAll = allRows.findIndex((r) => r.key === selected[selected.length - 1].key);
+  const prevRow = lastIdxAll > 0 ? allRows[lastIdxAll - 1] : null;
+  const prevValues = prevRow
+    ? Object.fromEntries(REGIONS.map((region) => [region, Number(prevRow.values?.[region]) || 0]))
+    : null;
+  const prevTotal = prevValues ? REGIONS.reduce((s, region) => s + prevValues[region], 0) : null;
+
+  const { labels, byRegion, total } = buildSeries(selected);
+  const lastLabel = labels[labels.length - 1];
+  const rangeText = `${labels[0]}-${lastLabel}`;
+  const lastTotal = total[total.length - 1];
+
+  const pptx = new pptxgen();
+  pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
+  pptx.author = 'CDS Monitoring';
+  pptx.subject = `Trend Weekly Cell Down ${AREA_LABEL}`;
+  pptx.title = `Trend Weekly Cell Down ${AREA_LABEL}`;
+  pptx.theme = { headFontFace: TITLE_FONT, bodyFontFace: FONT, lang: 'id-ID' };
+
+  const slide = pptx.addSlide();
+  slide.background = { color: 'FFFFFF' };
+
+  // Header: bar merah + judul + logo
+  slide.addShape(pptx.ShapeType.rect, {
+    x: 0, y: 0, w: 13.333, h: 0.14,
+    fill: { color: C.topBar }, line: { color: C.topBar, width: 0 },
+    objectName: 'Header Bar',
+  });
+  slide.addText(
+    [
+      { text: 'Trend Weekly Cell Down  ', options: { color: C.titleRed } },
+      { text: `| ${AREA_LABEL}  & Regional`, options: { color: C.titleBlue } },
+    ],
+    {
+      x: 0.1, y: 0.2, w: 9.2, h: 0.4, margin: [0, 0, 0, 0.1],
+      fontFace: TITLE_FONT, fontSize: 18, bold: true, valign: 'middle',
+      isTextBox: true, objectName: 'Judul',
+    }
+  );
+  if (logoData) {
+    slide.addImage({ data: logoData, x: 10.41, y: 0.21, w: 2.59, h: 0.48, objectName: 'Logo' });
+  }
+
+  // ---- Kartu atas: total semua regional
+  slide.addShape(pptx.ShapeType.roundRect, {
+    x: 0.67, y: 0.92, w: 11.99, h: 2.65, rectRadius: 0.08,
+    fill: { color: C.card }, line: { color: C.cardLine, width: 0.75 },
+    objectName: 'Kartu Total',
+  });
+  slide.addText(`${AREA_LABEL.toUpperCase()} · CELL DOWN ${lastLabel}`, {
+    x: 0.89, y: 1.46, w: 3.1, h: 0.24, margin: 0,
+    fontFace: FONT, fontSize: 12, bold: true, color: C.accent, charSpacing: 1, wrap: false,
+    isTextBox: true, objectName: 'Total Label',
+  });
+  slide.addText(fmt(lastTotal), {
+    x: 0.89, y: 1.76, w: 2.7, h: 0.69, margin: 0,
+    fontFace: FONT, fontSize: 48, bold: true, color: C.ink,
+    isTextBox: true, objectName: 'Total Angka',
+  });
+  addBadge(slide, buildDelta(lastTotal, prevTotal, prevRow?.label, true), 0.89, 2.51, 2.75, 'Total Badge');
+  slide.addText('Rata-rata harian per minggu', {
+    x: 0.89, y: 2.9, w: 2.75, h: 0.22, margin: 0,
+    fontFace: FONT, fontSize: 10, color: C.muted,
+    isTextBox: true, objectName: 'Total Catatan',
+  });
+
+  // chart1.xml = total
+  const chartSpecs = [];
+  slide.addChart(
+    pptx.ChartType.line,
+    [{ name: AREA_LABEL, labels, values: total }],
+    chartOptions({ x: 3.71, y: 1.06, w: 8.76, h: 2.53, color: C.totalLine, max: Math.max(...total) * 1.22 || 10, skip: 1 })
+  );
+  chartSpecs.push({
     labels,
-    values: rows.map((row) => Number(row.values[region]) || 0),
-  }));
+    values: total,
+    indexes: pickLabelIndexes(total, { first: true, mid: true }),
+    format: (label, value) => `${label}: ${fmt(value)}`,
+    style: { size: 1200, bold: true, color: C.ink, fill: null },
+  });
+
+  // ---- Tiga kartu bawah: per regional (chart2..4)
+  const cardW = 3.88;
+  const cardXs = [0.67, 4.73, 8.78];
+  const cardY = 3.74;
+  const cardH = 3.02;
+
+  REGIONS.forEach((region, i) => {
+    const x = cardXs[i];
+    const values = byRegion[region];
+    const style = REGION_STYLE[region] || FALLBACK_STYLE;
+    const lastValue = values[values.length - 1];
+
+    slide.addShape(pptx.ShapeType.roundRect, {
+      x, y: cardY, w: cardW, h: cardH, rectRadius: 0.08,
+      fill: { color: C.card }, line: { color: C.cardLine, width: 0.75 },
+      objectName: `Kartu ${region}`,
+    });
+    slide.addText(region, {
+      x: x + 0.2, y: cardY + 0.17, w: 2.2, h: 0.29, margin: 0,
+      fontFace: FONT, fontSize: 16, bold: true, color: C.ink,
+      isTextBox: true, objectName: `${region} Nama`,
+    });
+    slide.addText(fmt(lastValue), {
+      x: x + cardW - 1.2, y: cardY + 0.17, w: 1.0, h: 0.29, margin: 0,
+      fontFace: FONT, fontSize: 16, bold: true, color: C.ink, align: 'right',
+      isTextBox: true, objectName: `${region} Angka`,
+    });
+    slide.addText(`Cell down ${rangeText}`, {
+      x: x + 0.2, y: cardY + 0.47, w: 1.6, h: 0.24, margin: 0,
+      fontFace: FONT, fontSize: 10, color: C.muted,
+      isTextBox: true, objectName: `${region} Periode`,
+    });
+    addBadge(
+      slide,
+      buildDelta(lastValue, prevValues?.[region], prevRow?.label),
+      x + 1.78, cardY + 0.5, cardW - 1.98, `${region} Badge`
+    );
+
+    slide.addChart(
+      pptx.ChartType.line,
+      [{ name: region, labels, values }],
+      chartOptions({ x, y: cardY + 0.82, w: cardW, h: 2.14, color: style.line, max: Math.max(...values) * 1.25 || 10, skip: 2 })
+    );
+    chartSpecs.push({
+      labels,
+      values,
+      indexes: pickLabelIndexes(values, { mid: true }),
+      format: null,
+      style: { size: 900, bold: false, color: C.ink, fill: style.tint },
+    });
+  });
+
+  const buffer = await pptx.write({ outputType: 'arraybuffer' });
+  return injectDataLabels(buffer, chartSpecs);
+}
+
+// ---------------------------------------------------------------- browser entry
+
+async function loadLogoDataUrl() {
+  try {
+    const { default: url } = await import('../assets/header-logos.png');
+    const blob = await (await fetch(url)).blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null; // logo opsional, export tetap jalan tanpa logo
+  }
 }
 
 export async function exportWeeklyTrendPpt({ rows, fromWeek, toWeek, fileName }) {
-  const selectedRows = rows.filter((row) => row.key >= fromWeek && row.key <= toWeek);
-  if (!selectedRows.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
+  const selected = rows.filter((row) => row.key >= fromWeek && row.key <= toWeek);
+  if (!selected.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
 
-  const pptx = new pptxgen();
-  pptx.layout = 'LAYOUT_WIDE';
-  pptx.author = 'CDS Monitoring';
-  pptx.subject = 'Trend Weekly Cell Down Area 1';
-  pptx.title = 'Trend Weekly Cell Down Area 1';
-  pptx.theme = {
-    headFontFace: 'Aptos Display',
-    bodyFontFace: 'Aptos',
-    lang: 'id-ID',
-  };
-  const slide = pptx.addSlide();
-  slide.background = { color: 'FFFFFF' };
-  slide.addText('Trend Weekly Cell Down - Area 1', {
-    x: 0.45,
-    y: 0.2,
-    w: 12.4,
-    h: 0.36,
-    margin: 0,
-    fontFace: 'Aptos Display',
-    fontSize: 21,
-    bold: true,
-    color: '17365D',
+  const logoData = await loadLogoDataUrl();
+  const buffer = await buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData });
+
+  const first = selected[0].label;
+  const last = selected[selected.length - 1].label;
+  const outputName = fileName || `Trend_Weekly_Cell_Down_${AREA_LABEL.replace(' ', '_')}_${first}_${last}.pptx`;
+
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   });
-  slide.addText(`${selectedRows[0].label} - ${selectedRows[selectedRows.length - 1].label} | Rata-rata harian`, {
-    x: 0.47,
-    y: 0.59,
-    w: 12.2,
-    h: 0.22,
-    margin: 0,
-    fontFace: 'Aptos',
-    fontSize: 9,
-    color: '64748B',
-  });
-
-  const addLineChart = (title, regions, x, y, w, h, showLegend) => {
-    slide.addText(title, {
-      x,
-      y,
-      w,
-      h: 0.25,
-      margin: 0,
-      fontFace: 'Aptos',
-      fontSize: 11,
-      bold: true,
-      color: '334155',
-    });
-    slide.addChart(pptx.ChartType.line, makeSeries(selectedRows, regions), {
-      x,
-      y: y + 0.26,
-      w,
-      h: h - 0.26,
-      showTitle: false,
-      showLegend,
-      legendPos: 'b',
-      legendFontFace: 'Aptos',
-      legendFontSize: 8,
-      chartColors: regions.map((region) => REGION_COLORS[region]),
-      showValue: false,
-      showCatName: false,
-      showSerName: false,
-      catAxisLabelFontFace: 'Aptos',
-      catAxisLabelFontSize: 8,
-      catAxisLabelColor: '475569',
-      valAxisLabelFontFace: 'Aptos',
-      valAxisLabelFontSize: 8,
-      valAxisLabelColor: '64748B',
-      valAxisMinVal: 0,
-      valGridLine: { color: 'D9E2F0', width: 1 },
-      catAxisLineColor: 'CBD5E1',
-      valAxisLineColor: 'CBD5E1',
-      lineSize: 2,
-      lineDataSymbol: 'circle',
-      lineDataSymbolSize: 4,
-      showCatAxisTitle: false,
-      showValAxisTitle: false,
-      showBorder: false,
-    });
-  };
-
-  addLineChart('Semua Regional', REGIONS, 0.45, 0.92, 12.4, 3.05, true);
-  const cardWidth = 4.02;
-  const gap = 0.18;
-  REGIONS.forEach((region, index) => {
-    addLineChart(region, [region], 0.45 + index * (cardWidth + gap), 4.18, cardWidth, 2.78, false);
-  });
-
-  const firstLabel = selectedRows[0].label;
-  const lastLabel = selectedRows[selectedRows.length - 1].label;
-  const outputName = fileName || `Trend_Weekly_Cell_Down_Area_1_${firstLabel}_${lastLabel}.pptx`;
-  await pptx.writeFile({ fileName: outputName });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = outputName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
