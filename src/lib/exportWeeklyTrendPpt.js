@@ -118,9 +118,69 @@ function dLblsXml(spec) {
   );
 }
 
+
+// ---------------------------------------------------------------- workbook data (Edit Data)
+
+const colLetter = (i) => String.fromCharCode(65 + i); // 0 -> A (cukup untuk <= 26 kolom)
+const xmlEscape = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// Workbook xlsx minimal: kolom A = Week, kolom berikutnya = tiap series.
+async function buildWorkbook(labels, columns) {
+  const strCell = (ref, text) => `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(text)}</t></is></c>`;
+  const head = strCell('A1', 'Week') + columns.map((c, i) => strCell(`${colLetter(i + 1)}1`, c.name)).join('');
+  const body = labels
+    .map((label, r) => {
+      const row = r + 2;
+      const cells = columns.map((c, i) => `<c r="${colLetter(i + 1)}${row}"><v>${c.values[r]}</v></c>`).join('');
+      return `<row r="${row}">${strCell(`A${row}`, label)}${cells}</row>`;
+    })
+    .join('');
+  const zip = new JSZip();
+  zip.file(
+    '[Content_Types].xml',
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      '</Types>'
+  );
+  zip.file(
+    '_rels/.rels',
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      '</Relationships>'
+  );
+  zip.file(
+    'xl/workbook.xml',
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>'
+  );
+  zip.file(
+    'xl/_rels/workbook.xml.rels',
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+      '</Relationships>'
+  );
+  zip.file(
+    'xl/worksheets/sheet1.xml',
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      `<row r="1">${head}</row>${body}</sheetData></worksheet>`
+  );
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+}
+
 // pptxgenjs menamai file chart berurutan sesuai urutan addChart (chart1.xml, chart2.xml, ...).
-async function injectDataLabels(arrayBuffer, chartSpecs) {
+async function injectDataLabels(arrayBuffer, chartSpecs, table) {
   const zip = await JSZip.loadAsync(arrayBuffer);
+  // Satu tabel lengkap (Week | tiap regional | total Area) dipakai semua chart, seperti PPT Area 4.
+  const workbook = await buildWorkbook(table.labels, table.columns);
+  const rowCount = table.labels.length + 1;
   for (let i = 0; i < chartSpecs.length; i++) {
     const path = `ppt/charts/chart${i + 1}.xml`;
     const file = zip.file(path);
@@ -131,7 +191,16 @@ async function injectDataLabels(arrayBuffer, chartSpecs) {
     xml = xml.replace('<c:crossBetween val="between"/>', '<c:crossBetween val="midCat"/>');
     xml = xml.replace('<a:bodyPr rot="16200000"/>', '<a:bodyPr rot="-5400000" vert="horz"/>');
     xml = xml.replace(/(<c:ser>[\s\S]*?)<c:dLbls>[\s\S]*?<\/c:dLbls>([\s\S]*?<\/c:ser>)/, `$1${replacement}$2`);
+    // Tiap chart menunjuk kolomnya sendiri di tabel lengkap tsb.
+    const L = colLetter(chartSpecs[i].col + 1);
+    xml = xml.replace(/Sheet1!\$B\$1/g, () => `Sheet1!$${L}$1`);
+    xml = xml.replace(/Sheet1!\$B\$2:\$B\$\d+/g, () => `Sheet1!$${L}$2:$${L}$${rowCount}`);
     zip.file(path, xml);
+
+    // Ganti workbook embedded chart ini dengan tabel lengkap.
+    const relsFile = zip.file(`ppt/charts/_rels/chart${i + 1}.xml.rels`);
+    const target = relsFile && (await relsFile.async('string')).match(/Target="\.\.\/embeddings\/([^"]+\.xlsx)"/);
+    if (target) zip.file(`ppt/embeddings/${target[1]}`, workbook);
   }
   return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
 }
@@ -270,6 +339,7 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
     chartOptions({ x: 3.71, y: 1.06, w: 8.76, h: 2.53, color: C.totalLine, max: Math.max(...total) * 1.22 || 10, skip: 1 })
   );
   chartSpecs.push({
+    col: REGIONS.length,
     labels,
     values: total,
     indexes: pickLabelIndexes(total, { first: true, mid: true }),
@@ -321,6 +391,7 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
       chartOptions({ x, y: cardY + 0.82, w: cardW, h: 2.14, color: style.line, max: Math.max(...values) * 1.25 || 10, skip: 2 })
     );
     chartSpecs.push({
+      col: i,
       labels,
       values,
       indexes: pickLabelIndexes(values, { mid: true }),
@@ -330,7 +401,11 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
   });
 
   const buffer = await pptx.write({ outputType: 'arraybuffer' });
-  return injectDataLabels(buffer, chartSpecs);
+  const table = {
+    labels,
+    columns: [...REGIONS.map((region) => ({ name: region, values: byRegion[region] })), { name: AREA_LABEL, values: total }],
+  };
+  return injectDataLabels(buffer, chartSpecs, table);
 }
 
 // ---------------------------------------------------------------- browser entry
