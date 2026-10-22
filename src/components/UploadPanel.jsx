@@ -77,6 +77,13 @@ export default function UploadPanel({
   noimBcTime,
   noimMessage,
   noimError,
+  availFile,
+  onAvailFileChange,
+  onUploadAvail,
+  availUploading,
+  availSummary,
+  availMessage,
+  availError,
 }) {
   const readyCount = [mergeFile].filter(Boolean).length;
 
@@ -239,6 +246,39 @@ export default function UploadPanel({
           <div className="mt-4 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md px-4 py-3">
             {noimMessage}
           </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <h2 className="font-semibold text-slate-800 mb-1">Availability</h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Upload file Availability RAN mingguan (mis. Avail_RAN_ReconENOM). Yang disimpan: period (202641 = W41), regional, dan
+          availability (%). Data dipakai untuk export PPT Availability Trend di Dashboard. Hanya data yang belum ada yang ditambahkan; minggu yang sudah tersimpan dilewati dan tidak ditimpa.
+        </p>
+        <div className="flex items-center gap-4 flex-wrap">
+          <FileSlot
+            label="Availability RAN (CSV/Excel)"
+            file={availFile}
+            onChange={onAvailFileChange}
+          />
+          <button
+            disabled={!availFile || availUploading}
+            onClick={onUploadAvail}
+            className="px-4 py-2 rounded-md bg-navy-900 text-white text-sm font-medium disabled:opacity-40"
+          >
+            {availUploading ? 'Menyimpan...' : 'Simpan ke Database'}
+          </button>
+          {availSummary && (
+            <span className="text-xs text-slate-500">
+              Tersimpan di database: {availSummary.weeks.toLocaleString('id-ID')} minggu ({availSummary.first} - {availSummary.last})
+            </span>
+          )}
+        </div>
+        {availError && (
+          <div className="mt-4 text-sm bg-red-50 text-red-700 border border-red-200 rounded-md px-4 py-3">{availError}</div>
+        )}
+        {availMessage && (
+          <div className="mt-4 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md px-4 py-3">{availMessage}</div>
         )}
       </div>
 

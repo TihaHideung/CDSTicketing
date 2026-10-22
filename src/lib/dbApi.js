@@ -133,6 +133,15 @@ export async function getSiteDownDailySets() {
   return apiFetch('/api/site-down/daily-sets');
 }
 
+// Availability RAN mingguan: [{ period: 202641, regional: 'Sumbagut', availability, outageSec, denumSec }].
+export async function saveAvailability(rows) {
+  return apiFetch('/api/availability/replace', { method: 'POST', body: JSON.stringify({ rows }) });
+}
+
+export async function getAvailability() {
+  return apiFetch('/api/availability');
+}
+
 export function todayKey(date = new Date()) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');

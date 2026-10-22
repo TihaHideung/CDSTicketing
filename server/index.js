@@ -241,6 +241,26 @@ async function ensureSchema() {
   }
 
   try {
+    // Availability RAN per minggu: 1 baris per (period, regional). Upload hanya menambah
+    // data yang belum ada; baris period+regional yang sudah ada tidak ditimpa. outage/denum disimpan supaya Area 1
+    // bisa dihitung berbobot (bukan sekadar rata-rata regional).
+    await pool.query(`
+CREATE TABLE IF NOT EXISTS availability_weekly (
+  period        INT NOT NULL,
+  regional      VARCHAR(50) NOT NULL,
+  availability  DECIMAL(6,2) NOT NULL,
+  outage_sec    DOUBLE NULL,
+  denum_sec     DOUBLE NULL,
+  uploaded_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (period, regional)
+) ENGINE=InnoDB`);
+    console.log('Migrasi: tabel `availability_weekly` siap dipakai.');
+  } catch (err) {
+    console.error('Gagal membuat availability_weekly:', err.message);
+  }
+
+  try {
     // NOIM disimpan per tanggal (snapshot_date) supaya bisa dibuat trend irisan INAP & NOIM.
     // Primary key = (snapshot_date, site_id): upload ulang di tanggal yang sama hanya
     // menggantikan data tanggal itu, tanggal lain tidak tersentuh.
@@ -1131,6 +1151,71 @@ function isValidIsoDate(v) {
   const d = new Date(`${v}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }
+
+// ---------------------------------------------------------------- Availability RAN (mingguan)
+const AVAIL_REGIONALS = new Set(['Sumbagut', 'Sumbagsel', 'Sumbagteng']);
+
+app.post('/api/availability/replace', async (req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'Tidak ada baris availability untuk disimpan.' });
+  }
+  const kept = rows.filter(
+    (r) =>
+      Number.isInteger(Number(r.period)) &&
+      /^\d{6}$/.test(String(r.period)) &&
+      AVAIL_REGIONALS.has(r.regional) &&
+      Number.isFinite(Number(r.availability))
+  );
+  if (kept.length === 0) {
+    return res.status(400).json({ error: 'Tidak ada baris valid (period, regional, availability).' });
+  }
+  const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    // Sistem tambah saja: (period, regional) yang sudah ada di database dilewati (INSERT IGNORE),
+    // tidak ditimpa. Yang belum ada ditambahkan, jadi minggu lama di dalam file ikut masuk.
+    let added = 0;
+    const chunkSize = 300;
+    for (let i = 0; i < kept.length; i += chunkSize) {
+      const chunk = kept.slice(i, i + chunkSize);
+      const values = chunk.map((r) => [Number(r.period), r.regional, Number(r.availability), num(r.outageSec), num(r.denumSec)]);
+      const [result] = await conn.query(
+        `INSERT IGNORE INTO availability_weekly (period, regional, availability, outage_sec, denum_sec) VALUES ?`,
+        [values]
+      );
+      added += result.affectedRows;
+    }
+    await conn.commit();
+    const [cnt] = await pool.query('SELECT COUNT(*) AS c, MIN(period) AS first_period, MAX(period) AS last_period FROM availability_weekly');
+    res.json({ saved: added, added, skipped: kept.length - added, total: cnt[0].c, firstPeriod: cnt[0].first_period, lastPeriod: cnt[0].last_period });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.get('/api/availability', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT period, regional, availability, outage_sec, denum_sec FROM availability_weekly ORDER BY period, regional'
+    );
+    res.json(
+      rows.map((r) => ({
+        period: Number(r.period),
+        regional: r.regional,
+        availability: Number(r.availability),
+        outageSec: r.outage_sec == null ? null : Number(r.outage_sec),
+        denumSec: r.denum_sec == null ? null : Number(r.denum_sec),
+      }))
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.post('/api/noim/replace', async (req, res) => {
   const { rows, snapshotDate } = req.body;

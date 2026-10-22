@@ -9,7 +9,7 @@ import PasswordGateModal from './components/PasswordGateModal.jsx';
 import EasVswrPage from './features/eas-vswr/EasVswrPage.jsx';
 import PmTrackingPage from './features/pm-tracking/PmTrackingPage.jsx';
 import FilterBar, { ALL_KEY, UNSET_KEY } from './components/FilterBar.jsx';
-import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readNoimFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
+import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readNoimFile, readAvailabilityFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
 import { cleanMergedRows, matchAgainstSwfm, dedupeSiteDownBySiteId, validateRegionalRows } from './lib/cleaning.js';
 import { buildSwfmMaps } from './lib/swfmCheck.js';
 import { computeSummary, buildFilteredDailyTrend, buildFilteredDailyTrendByRegion } from './lib/aggregate.js';
@@ -31,6 +31,8 @@ import {
   lookupSiteMaster,
   getSiteMasterCount,
   replaceNoim,
+  saveAvailability,
+  getAvailability,
   getNoim,
   getNoimDates,
   getSiteDownDailySets,
@@ -110,6 +112,11 @@ export default function App() {
   const [masterImporting, setMasterImporting] = useState(false);
   const [masterCount, setMasterCount] = useState(null);
   const [noimFile, setNoimFile] = useState(null);
+  const [availFile, setAvailFile] = useState(null);
+  const [availUploading, setAvailUploading] = useState(false);
+  const [availMessage, setAvailMessage] = useState('');
+  const [availError, setAvailError] = useState('');
+  const [availSummary, setAvailSummary] = useState(null); // { weeks, first, last } data availability di database
   const [noimUploading, setNoimUploading] = useState(false);
   const [noimMessage, setNoimMessage] = useState('');
   const [noimError, setNoimError] = useState('');
@@ -167,6 +174,21 @@ export default function App() {
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
+
+  const refreshAvailSummary = useCallback(async () => {
+    try {
+      const rows = await getAvailability();
+      const periods = [...new Set((Array.isArray(rows) ? rows : []).map((r) => r.period))].sort((a, b) => a - b);
+      const label = (p) => `W${Number(String(p).slice(4))} ${String(p).slice(0, 4)}`;
+      setAvailSummary(periods.length ? { weeks: periods.length, first: label(periods[0]), last: label(periods[periods.length - 1]) } : null);
+    } catch {
+      setAvailSummary(null); // backend lama belum punya endpoint availability
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshAvailSummary();
+  }, [refreshAvailSummary]);
 
   const sourceEnabled = categoryFilter === 'SiteDown';
   const effectiveSource = sourceEnabled ? sourceFilter : SOURCE_INAP;
@@ -421,6 +443,33 @@ export default function App() {
       setNoimUploading(false);
     }
   }, [noimFile, noimDate, refreshAll]);
+
+  const handleUploadAvail = useCallback(async () => {
+    if (!availFile) return;
+    setAvailUploading(true);
+    setAvailError('');
+    setAvailMessage('');
+    try {
+      const { rows, skippedOtherRegional, skippedInvalid, duplicates } = await readAvailabilityFile(availFile);
+      if (!rows.length) {
+        throw new Error('Tidak ada baris Regional 1 / 2 / 10 dengan period dan availability yang valid di file ini, tidak ada yang disimpan.');
+      }
+      const result = await saveAvailability(rows);
+      await refreshAvailSummary();
+      setAvailFile(null);
+      const notes = [];
+      if (skippedOtherRegional) notes.push(`${skippedOtherRegional.toLocaleString('id-ID')} baris di luar Regional 1 / 2 / 10 dibuang`);
+      if (skippedInvalid) notes.push(`${skippedInvalid.toLocaleString('id-ID')} baris tanpa period/availability valid dilewati`);
+      if (duplicates) notes.push(`${duplicates} baris dobel digabung`);
+      setAvailMessage(
+        `Data availability: ${result.added.toLocaleString('id-ID')} baris baru ditambahkan, ${result.skipped.toLocaleString('id-ID')} baris sudah ada di database (dilewati). Total di database ${result.total.toLocaleString('id-ID')} baris.${notes.length ? ` (${notes.join(', ')})` : ''}`
+      );
+    } catch (err) {
+      setAvailError(err.message || String(err));
+    } finally {
+      setAvailUploading(false);
+    }
+  }, [availFile, refreshAvailSummary]);
 
   function shiftDateKey(key, days) {
     const d = new Date(`${key}T00:00:00Z`);
@@ -839,6 +888,13 @@ export default function App() {
           noimBcTime={sourceStats.bcTime}
           noimMessage={noimMessage}
           noimError={noimError}
+          availFile={availFile}
+          onAvailFileChange={setAvailFile}
+          onUploadAvail={handleUploadAvail}
+          availUploading={availUploading}
+          availSummary={availSummary}
+          availMessage={availMessage}
+          availError={availError}
         />
       );
     }
@@ -916,7 +972,7 @@ export default function App() {
     return null;
   }, [
     active, mergeFile, swfmFile, masterFile, processing, progressMessage, error, uploadDateMode, uploadDate, processMessage, dailyTrendLog,
-    masterImporting, masterCount, noimFile, noimUploading, noimMessage, noimError, noimSiteSet, noimDate, noimDates, trendSkippedDates, sourceStats, sourceFilter, effectiveSource, summary, removedStats, dailyTrend, dailyTrendByRegion,
+    masterImporting, masterCount, noimFile, noimUploading, noimMessage, noimError, availFile, availUploading, availMessage, availError, availSummary, handleUploadAvail, noimSiteSet, noimDate, noimDates, trendSkippedDates, sourceStats, sourceFilter, effectiveSource, summary, removedStats, dailyTrend, dailyTrendByRegion,
     trendHasGranularFilter, trendLogHasOlderData, activeTrendLog, trendCriteria, regionalFilter,
     nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, dateFrom, dateTo, nopOptions, clusterOptions, viewRows,
     handleProcess, handleUploadDateModeChange, handleExport, handleImportMaster, handleUploadNoim, handleCategoryChange, handleDownloadBulkRcTemplate, handleBulkRcUpload,

@@ -31,6 +31,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const [reportPpt, setReportPpt] = useState(false);
   const [reportKeyState, setReportKeyState] = useState(null);
   const [trendWeekly, setTrendWeekly] = useState(false);
+  const [availability, setAvailability] = useState(false);
   const [weekFromState, setWeekFromState] = useState(null);
   const [weekToState, setWeekToState] = useState(null);
 
@@ -44,7 +45,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const weeklyReady = Boolean(weekFrom && weekTo && weekFrom <= weekTo);
 
   const uploadDateInvalid = excel && (!uploadDateFrom || !uploadDateTo || uploadDateFrom > uploadDateTo);
-  const canExport = !exporting && !uploadDateInvalid && (excel || (reportPpt && reportReady) || (trendWeekly && weeklyReady)) && !(reportPpt && !reportReady) && !(trendWeekly && !weeklyReady);
+  const canExport = !exporting && !uploadDateInvalid && (excel || (reportPpt && reportReady) || (trendWeekly && weeklyReady) || availability) && !(reportPpt && !reportReady) && !(trendWeekly && !weeklyReady);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -179,6 +180,17 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               </div>
             )}
           </div>
+
+          <div className="rounded-lg border border-slate-200 p-3">
+            <Check checked={availability} onChange={setAvailability} disabled={exporting}>
+              <Presentation size={16} className="text-orange-600" />
+              <span className="font-medium">Availability Trend (.pptx)</span>
+            </Check>
+            <p className="ml-6 mt-1 text-xs text-slate-400">
+              Trend weekly availability Area 1 dan per regional (Sumbagut, Sumbagteng, Sumbagsel) dari data yang diupload di menu Upload &gt; Availability.
+              Tidak mengikuti filter Dashboard.
+            </p>
+          </div>
         </div>
 
         {error && (
@@ -197,7 +209,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
           <button
             type="button"
             disabled={!canExport}
-            onClick={() => onConfirm({ excel, reportPpt, trendWeekly, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo })}
+            onClick={() => onConfirm({ excel, reportPpt, trendWeekly, availability, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo })}
             className="rounded-md bg-brand-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {exporting ? 'Mengekspor...' : 'Export'}
@@ -206,7 +218,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
         {!excel && reportPpt && !reportReady && (
           <p className="mt-2 text-right text-xs text-slate-400">Belum ada minggu yang punya data untuk filter ini.</p>
         )}
-        {!excel && !reportPpt && !trendWeekly && <p className="mt-2 text-right text-xs text-slate-400">Pilih minimal satu format export.</p>}
+        {!excel && !reportPpt && !trendWeekly && !availability && <p className="mt-2 text-right text-xs text-slate-400">Pilih minimal satu format export.</p>}
       </div>
     </div>
   );

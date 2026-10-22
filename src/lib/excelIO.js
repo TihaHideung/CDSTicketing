@@ -203,6 +203,60 @@ function cellText(v) {
   return String(v).trim();
 }
 
+const AVAILABILITY_REQUIRED_HEADERS = ['period', 'regional', 'availability (%)'];
+
+function toNumber(v) {
+  if (v == null || v === '') return null;
+  const n = Number(String(v).replace(',', '.').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Baca file Availability RAN (mis. Avail_RAN_ReconENOM_W1-W41.csv). Kolom yang dipakai:
+ *   period (202641 = W41 tahun 2026), regional (REGIONAL1/2/10), availability (%).
+ * `outage (Sec)` dan `denum (Sec)` ikut dibaca kalau ada, hanya untuk menghitung Area 1 berbobot.
+ * Regional di luar 1 / 2 / 10 dibuang; kalau (period, regional) dobel, baris terakhir dipakai.
+ * Return: { rows, skippedOtherRegional, skippedInvalid, duplicates }
+ */
+export async function readAvailabilityFile(file) {
+  const wb = await readWorkbook(file, { wantDates: false });
+  const found = findDataSheet(wb, AVAILABILITY_REQUIRED_HEADERS);
+  if (!found) {
+    throw new Error(
+      `Tidak menemukan kolom "${AVAILABILITY_REQUIRED_HEADERS.join('", "')}" di file "${file.name}". Pastikan ini file Availability RAN yang benar.`
+    );
+  }
+  const raw = sheetToJsonFromHeaderRow(found.ws, found.headerRow);
+  const byKey = new Map();
+  let skippedOtherRegional = 0;
+  let skippedInvalid = 0;
+  let duplicates = 0;
+  for (const r of raw) {
+    const regional = getRegionalTagFromValue(r['regional'] ?? r['Regional']);
+    if (!NOIM_REGIONALS.includes(regional)) {
+      skippedOtherRegional++;
+      continue;
+    }
+    const periodText = String(r['period'] ?? r['Period'] ?? '').trim();
+    const availability = toNumber(r['availability (%)']);
+    if (!/^\d{6}$/.test(periodText) || availability == null) {
+      skippedInvalid++;
+      continue;
+    }
+    const key = `${periodText}::${regional}`;
+    if (byKey.has(key)) duplicates++;
+    byKey.set(key, {
+      period: Number(periodText),
+      regional,
+      availability,
+      outageSec: toNumber(r['outage (Sec)']),
+      denumSec: toNumber(r['denum (Sec)']),
+    });
+  }
+  const rows = [...byKey.values()].sort((a, b) => a.period - b.period || a.regional.localeCompare(b.regional));
+  return { rows, skippedOtherRegional, skippedInvalid, duplicates };
+}
+
 /**
  * Baca file Data NOIM. Baris tanpa Site ID dilewati (di file asli ada baris kosong /
  * baris yang cuma berisi Remark). Kalau ada Site ID dobel, yang dipertahankan adalah
