@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { X, FileSpreadsheet, FileText, Presentation } from 'lucide-react';
+import { X, FileSpreadsheet, Presentation } from 'lucide-react';
 
 function Check({ checked, onChange, disabled, children, className = '' }) {
   return (
@@ -19,8 +19,8 @@ function Check({ checked, onChange, disabled, children, className = '' }) {
 }
 
 /**
- * Pop up pilihan export Dashboard. `onConfirm` menerima opsi Excel, PDF, dan PPTX.
- * PDF = laporan Weekly (1 minggu, Jumat-Kamis), bukan kumpulan grafik.
+ * Pop up pilihan export Dashboard. `onConfirm` menerima opsi Excel, Report PPTX, dan Trend Weekly PPTX.
+ * Report PPTX = slide Cell Down (template Tracking & Performance) untuk 1 minggu (Jumat-Kamis).
  * `getReportWeeks()` mengembalikan daftar minggu yang punya data: [{ key, label }] (terbaru dulu).
  * Komponen ini di-mount hanya saat dibuka, jadi pilihan selalu mulai dari default.
  */
@@ -28,7 +28,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const [excel, setExcel] = useState(false);
   const [uploadDateFrom, setUploadDateFrom] = useState('');
   const [uploadDateTo, setUploadDateTo] = useState('');
-  const [pdf, setPdf] = useState(false);
+  const [reportPpt, setReportPpt] = useState(false);
   const [reportKeyState, setReportKeyState] = useState(null);
   const [trendWeekly, setTrendWeekly] = useState(false);
   const [weekFromState, setWeekFromState] = useState(null);
@@ -44,7 +44,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const weeklyReady = Boolean(weekFrom && weekTo && weekFrom <= weekTo);
 
   const uploadDateInvalid = excel && (!uploadDateFrom || !uploadDateTo || uploadDateFrom > uploadDateTo);
-  const canExport = !exporting && !uploadDateInvalid && (excel || (pdf && reportReady) || (trendWeekly && weeklyReady)) && !(pdf && !reportReady) && !(trendWeekly && !weeklyReady);
+  const canExport = !exporting && !uploadDateInvalid && (excel || (reportPpt && reportReady) || (trendWeekly && weeklyReady)) && !(reportPpt && !reportReady) && !(trendWeekly && !weeklyReady);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -68,6 +68,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               <FileSpreadsheet size={16} className="text-emerald-600" />
               <span className="font-medium">Excel (.xlsx)</span>
             </Check>
+            <p className="ml-6 mt-1 text-xs text-slate-400">Data snapshot upload, ringkasan, dan trend berdasarkan tanggal upload.</p>
             {excel && (
               <div className="ml-6 mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="text-xs font-medium text-slate-600">
@@ -103,12 +104,15 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
           </div>
 
           <div className="rounded-lg border border-slate-200 p-3">
-            <Check checked={pdf} onChange={setPdf} disabled={exporting}>
-              <FileText size={16} className="text-brand-red" />
-              <span className="font-medium">PDF (Report)</span>
+            <Check checked={reportPpt} onChange={setReportPpt} disabled={exporting}>
+              <Presentation size={16} className="text-brand-red" />
+              <span className="font-medium">PowerPoint (Report Cell Down)</span>
             </Check>
+            <p className="ml-6 mt-1 text-xs text-slate-400">
+              Satu slide Cell Down: Site Class, Area Contributor, RC Category, Aging, dan trend harian Area 1 per regional (per NOP).
+            </p>
 
-            {pdf && (
+            {reportPpt && (
               <div className="ml-6 mt-3 space-y-2 border-t border-slate-100 pt-3">
                 <label className="block text-xs font-medium text-slate-600">
                   Minggu
@@ -139,6 +143,9 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               <Presentation size={16} className="text-navy-700" />
               <span className="font-medium">Trend Weekly Cell Down (.pptx)</span>
             </Check>
+            <p className="ml-6 mt-1 text-xs text-slate-400">
+              Empat chart Area 1: semua regional dan masing-masing regional, dengan rata-rata harian per minggu.
+            </p>
             {trendWeekly && (
               <div className="ml-6 mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="text-xs font-medium text-slate-600">
@@ -190,16 +197,16 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
           <button
             type="button"
             disabled={!canExport}
-            onClick={() => onConfirm({ excel, pdf, trendWeekly, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo })}
+            onClick={() => onConfirm({ excel, reportPpt, trendWeekly, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo })}
             className="rounded-md bg-brand-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {exporting ? 'Mengekspor...' : 'Export'}
           </button>
         </div>
-        {!excel && pdf && !reportReady && (
+        {!excel && reportPpt && !reportReady && (
           <p className="mt-2 text-right text-xs text-slate-400">Belum ada minggu yang punya data untuk filter ini.</p>
         )}
-        {!excel && !pdf && !trendWeekly && <p className="mt-2 text-right text-xs text-slate-400">Pilih minimal satu format export.</p>}
+        {!excel && !reportPpt && !trendWeekly && <p className="mt-2 text-right text-xs text-slate-400">Pilih minimal satu format export.</p>}
       </div>
     </div>
   );

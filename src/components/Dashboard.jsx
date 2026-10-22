@@ -1,5 +1,4 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import KpiCards from './KpiCards.jsx';
 import FilterBar, { UNSET_KEY } from './FilterBar.jsx';
 import ExportModal from './ExportModal.jsx';
@@ -11,12 +10,7 @@ import TrendChart from './charts/TrendChart.jsx';
 import { REGIONS, SOURCE_INAP, SOURCE_NOIM, SOURCE_BOTH, SOURCE_NOT_BOTH } from '../lib/constants.js';
 import { ALL_KEY } from './FilterBar.jsx';
 import { buildFilteredDailyTrendByNop, buildFilteredDailyTrendByRegion, getPeriodBucket } from '../lib/aggregate.js';
-import { buildReport, listReportPeriods } from '../lib/reportAnalysis.js';
-import { exportReportPdf } from '../lib/reportPdf.js';
-
-const TYPE_LABEL = { CellDown: 'Cell Down', SiteDown: 'Site Down' };
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const nextFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+import { listReportPeriods } from '../lib/reportAnalysis.js';
 
 function describeFilters(f = {}, { withType = true } = {}) {
   const all = (v) => v === ALL_KEY;
@@ -51,13 +45,11 @@ export default function Dashboard({
   onExportExcel,
 }) {
   const captureRef = useRef(null);
-  const trendExportRef = useRef(null);
   const [showExport, setShowExport] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
-  const [reportCharts, setReportCharts] = useState([]); // grafik yang di-render tersembunyi saat export report
 
-  // Report PDF selalu Weekly. Ini daftar minggu yang punya data (dipakai dropdown di ExportModal).
+  // Report PPT selalu Weekly. Ini daftar minggu yang punya data (dipakai dropdown di ExportModal).
   const getReportWeeks = useCallback(() => listReportPeriods(trendLog, trendCriteria, 'weekly'), [trendLog, trendCriteria]);
   const weeklyTrendRows = useMemo(() => {
     if (sourceMode !== SOURCE_INAP) return [];
@@ -112,87 +104,25 @@ export default function Dashboard({
     };
   }, [trendLog, trendCriteria]);
 
-  const handleConfirmExport = async ({ excel, pdf, trendWeekly, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo }) => {
+  const handleConfirmExport = async ({ excel, reportPpt, trendWeekly, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo }) => {
     setExporting(true);
     setExportError('');
     try {
       if (excel) await onExportExcel({ uploadDateFrom, uploadDateTo });
 
-      if (pdf) {
-        // Report dipisah per tipe: Cell Down & Site Down masing-masing 1 halaman.
-        // Kalau filter Tipe sudah dipilih, hanya tipe itu; sumber selain INAP hanya Site Down.
-        const base = trendCriteria || {};
-        const types = base.category ? [base.category] : sourceMode === SOURCE_INAP ? ['CellDown', 'SiteDown'] : ['SiteDown'];
-        const inRange = (from, to) => (d) => {
-          const k = String(d.date).slice(0, 10);
-          return k >= from && k <= to;
-        };
-
-        const pages = [];
-        const specs = [];
-        for (const type of types) {
-          const criteria = { ...base, category: type };
-          let report;
-          try {
-            report = buildReport({ log: trendLog, criteria, period: 'weekly', periodKey: reportKey });
-          } catch {
-            continue; // minggu ini tidak punya data untuk tipe ini
-          }
-          const typeLabel = TYPE_LABEL[type];
-          // Data grafik untuk tipe ini (aturan sama dengan grafik Dashboard).
-          const view =
-            criteria.regionalFilter && criteria.regionalFilter !== ALL_KEY
-              ? { mode: 'nop', nopSplit: { ...buildFilteredDailyTrendByNop(trendLog, criteria), title: `${typeLabel} ${criteria.regionalFilter}` } }
-              : { mode: 'region', byRegion: buildFilteredDailyTrendByRegion(trendLog, REGIONS, criteria) };
-
-          // Grafik 1: trend mingguan; Grafik 2: trend harian HANYA pada tanggal di minggu report.
-          const chartIds = [`${type}-main`];
-          specs.push({
-            id: chartIds[0],
-            view,
-            fixedPeriod: report.trendWindow.granularity,
-            filterFn: inRange(report.trendWindow.from, report.trendWindow.to),
-          });
-          if (report.subWindow) {
-            const dates = new Set(report.subWindow.dates);
-            chartIds.push(`${type}-sub`);
-            specs.push({
-              id: chartIds[1],
-              view,
-              fixedPeriod: report.subWindow.granularity,
-              filterFn: (d) => dates.has(String(d.date).slice(0, 10)),
-            });
-          }
-          pages.push({
-            typeKey: type,
-            typeLabel,
-            report,
-            chartIds,
-            captions: [report.trendWindow.title.replace(/^Trend /, `Trend ${typeLabel} `), report.subWindow?.title.replace(/^Trend /, `Trend ${typeLabel} `)],
-          });
-        }
-        if (!pages.length) throw new Error('Tidak ada data untuk minggu ini pada filter yang dipilih.');
-
-        setReportCharts(specs);
-        // Beri waktu React me-render trend tersembunyi & Recharts mengukur ukurannya.
-        await nextFrames();
-        await sleep(900);
-
-        // Yang di-screenshot hanya area grafik + legenda (tanpa judul/keterangan bawaan komponen).
-        const grab = (id) => {
-          const holder = trendExportRef.current?.querySelector(`[data-export-chart="${id}"]`);
-          return holder?.querySelector('.recharts-wrapper') || holder;
-        };
-        const label = regionalFilter === ALL_KEY ? 'SemuaRegional' : regionalFilter;
-        await exportReportPdf({
-          pages: pages.map((pg) => ({
-            typeKey: pg.typeKey,
-            typeLabel: pg.typeLabel,
-            report: pg.report,
-            charts: pg.chartIds.map((id, i) => ({ element: grab(id), caption: pg.captions[i] })),
-          })),
-          fileName: `CDS_Monitoring_Laporan_Weekly_${pages[0].report.periodKey}_${label}.pdf`,
+      if (reportPpt) {
+        // Report Cell Down (template Tracking & Performance). Snapshot (Site Class, Area Contributor,
+        // RC, Aging) memakai `summary` Dashboard; trend harian 4 minggu s.d. akhir minggu terpilih.
+        const weekOption = getReportWeeks().find((o) => o.key === reportKey);
+        const { exportReportPpt } = await import('../lib/exportReportPpt.js');
+        await exportReportPpt({
+          summary,
+          trendLog,
+          criteria: trendCriteria || {},
+          weekKey: reportKey,
+          weekLabel: weekOption?.title || '',
           filterText: describeFilters(filters, { withType: false }),
+          fileName: `CDS_Monitoring_Report_Cell_Down_${reportKey}.pptx`,
         });
       }
       if (trendWeekly) {
@@ -210,7 +140,6 @@ export default function Dashboard({
     } catch (err) {
       setExportError(err?.message || String(err));
     } finally {
-      setReportCharts([]);
       setExporting(false);
     }
   };
@@ -239,38 +168,20 @@ export default function Dashboard({
 
   const isAllRegional = regionalFilter === ALL_KEY;
 
-  // `view` (opsional) = data trend untuk 1 tipe saat export report; tanpa `view` memakai data Dashboard saat ini.
-  const renderTrend = (fixedPeriod, filterFn, view) => {
-    const split = view ? (view.mode === 'nop' ? view.nopSplit : null) : nopSplit;
-    const byRegion = view ? view.byRegion : dailyTrendByRegion;
-    const granular = view ? true : trendHasGranularFilter;
+  const renderTrend = () => {
     const common = {
-      hasGranularFilter: granular,
+      hasGranularFilter: trendHasGranularFilter,
       logHasOlderData: trendLogHasOlderData,
-      fixedPeriod,
       sourceMode,
       skippedDates: trendSkippedDates,
     };
-    if (split) {
-      return (
-        <TrendChart
-          dataByNop={filterFn ? split.rows.filter(filterFn) : split.rows}
-          nops={split.nops}
-          nopTitle={split.title}
-          {...common}
-        />
-      );
+    if (nopSplit) {
+      return <TrendChart dataByNop={nopSplit.rows} nops={nopSplit.nops} nopTitle={nopSplit.title} {...common} />;
     }
-    if (view ? view.mode === 'region' : isAllRegional) {
-      return (
-        <TrendChart
-          dataByRegion={filterFn ? byRegion.filter(filterFn) : byRegion}
-          regions={REGIONS}
-          {...common}
-        />
-      );
+    if (isAllRegional) {
+      return <TrendChart dataByRegion={dailyTrendByRegion} regions={REGIONS} {...common} />;
     }
-    return <TrendChart dataSingle={filterFn ? dailyTrend.filter(filterFn) : dailyTrend} {...common} />;
+    return <TrendChart dataSingle={dailyTrend} {...common} />;
   };
 
   return (
@@ -361,20 +272,6 @@ export default function Dashboard({
         />
       )}
 
-      {reportCharts.length > 0 &&
-        createPortal(
-          <div
-            ref={trendExportRef}
-            style={{ position: 'fixed', left: 0, top: 0, width: 1100, zIndex: -1, pointerEvents: 'none', background: '#ffffff' }}
-          >
-            {reportCharts.map((c) => (
-              <div key={c.id} data-export-chart={c.id} style={{ background: '#ffffff', padding: 4, marginBottom: 8 }}>
-                {renderTrend(c.fixedPeriod, c.filterFn, c.view)}
-              </div>
-            ))}
-          </div>,
-          document.body
-        )}
     </div>
   );
 }
