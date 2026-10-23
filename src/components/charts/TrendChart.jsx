@@ -209,10 +209,12 @@
       return [...weekMap.values()].sort((a, b) => a.key.localeCompare(b.key));
     }, [rawData]);
 
-    const selectedStartWeek = weeks.some((week) => week.key === dailyStartWeek) ? dailyStartWeek : weeks[0]?.key || '';
-    const selectedEndWeek = weeks.some((week) => week.key === dailyEndWeek) ? dailyEndWeek : weeks[weeks.length - 1]?.key || '';
-    const selectedWeeklyStart = weeks.some((week) => week.key === weeklyStartWeek) ? weeklyStartWeek : weeks[0]?.key || '';
-    const selectedWeeklyEnd = weeks.some((week) => week.key === weeklyEndWeek) ? weeklyEndWeek : weeks[weeks.length - 1]?.key || '';
+    const defaultStartWeek = weeks[Math.max(0, weeks.length - 4)]?.key || '';
+    const defaultEndWeek = weeks[weeks.length - 1]?.key || '';
+    const selectedStartWeek = weeks.some((week) => week.key === dailyStartWeek) ? dailyStartWeek : defaultStartWeek;
+    const selectedEndWeek = weeks.some((week) => week.key === dailyEndWeek) ? dailyEndWeek : defaultEndWeek;
+    const selectedWeeklyStart = weeks.some((week) => week.key === weeklyStartWeek) ? weeklyStartWeek : defaultStartWeek;
+    const selectedWeeklyEnd = weeks.some((week) => week.key === weeklyEndWeek) ? weeklyEndWeek : defaultEndWeek;
 
     const data = useMemo(() => {
       if (!rawData) return rawData;
