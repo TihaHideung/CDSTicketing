@@ -272,7 +272,7 @@ function chartOptions({ x, y, w, h, color, min = 0, max, skip, showYAxis = false
     valAxisLabelColor: C.axis,
     valAxisLineShow: showYAxis,
     valAxisLineColor: C.axisLine,
-    catGridLine: { color: 'E3E4E0', size: 0.5, style: 'solid' }, // garis vertikal tiap minggu
+    catGridLine: { style: 'none' },
     catAxisLabelFontFace: FONT,
     catAxisLabelFontSize: 8,
     catAxisLabelColor: C.axis,
