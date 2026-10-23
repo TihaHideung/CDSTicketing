@@ -48,6 +48,9 @@ export default function Dashboard({
   const [showExport, setShowExport] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
+  const [availabilityWeeks, setAvailabilityWeeks] = useState([]);
+  const [availabilityWeeksLoading, setAvailabilityWeeksLoading] = useState(false);
+  const [availabilityWeeksError, setAvailabilityWeeksError] = useState('');
 
   // Report PPT selalu Weekly. Ini daftar minggu yang punya data (dipakai dropdown di ExportModal).
   const getReportWeeks = useCallback(() => listReportPeriods(trendLog, trendCriteria, 'weekly'), [trendLog, trendCriteria]);
@@ -88,6 +91,36 @@ export default function Dashboard({
     () => weeklyTrendRows.slice().reverse().map(({ key, rangeLabel }) => ({ key, label: rangeLabel })),
     [weeklyTrendRows]
   );
+  const openExport = async () => {
+    setExportError('');
+    setShowExport(true);
+    setAvailabilityWeeks([]);
+    setAvailabilityWeeksError('');
+    setAvailabilityWeeksLoading(true);
+    try {
+      const { getAvailability } = await import('../lib/dbApi.js');
+      const rows = await getAvailability();
+      const periodRegions = new Map();
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const period = Number(row.period);
+        if (!/^\d{6}$/.test(String(row.period)) || !REGIONS.includes(row.regional) || !Number.isFinite(Number(row.availability))) continue;
+        if (!periodRegions.has(period)) periodRegions.set(period, new Set());
+        periodRegions.get(period).add(row.regional);
+      }
+      const completePeriods = [...periodRegions.entries()]
+        .filter(([, regions]) => REGIONS.every((region) => regions.has(region)))
+        .map(([period]) => period);
+      const latestYear = Math.max(0, ...completePeriods.map((period) => Math.floor(period / 100)));
+      setAvailabilityWeeks(completePeriods
+        .filter((period) => Math.floor(period / 100) === latestYear)
+        .sort((a, b) => a - b)
+        .map((period) => ({ key: String(period), label: `W${period % 100} ${Math.floor(period / 100)}` })));
+    } catch (err) {
+      setAvailabilityWeeksError(err?.message || 'Gagal memuat minggu Availability.');
+    } finally {
+      setAvailabilityWeeksLoading(false);
+    }
+  };
 
   // Tampilan saja: 1 Regional -> batang trend dipecah per NOP.
   const nopSplit = useMemo(() => {
@@ -104,7 +137,7 @@ export default function Dashboard({
     };
   }, [trendLog, trendCriteria]);
 
-  const handleConfirmExport = async ({ excel, reportPpt, trendWeekly, availability, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo }) => {
+  const handleConfirmExport = async ({ excel, reportPpt, trendWeekly, availability, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, uploadDateFrom, uploadDateTo }) => {
     setExporting(true);
     setExportError('');
     try {
@@ -139,7 +172,7 @@ export default function Dashboard({
       if (availability) {
         const { getAvailability } = await import('../lib/dbApi.js');
         const { exportAvailabilityPpt } = await import('../lib/exportAvailabilityPpt.js');
-        await exportAvailabilityPpt({ rows: await getAvailability() });
+        await exportAvailabilityPpt({ rows: await getAvailability(), weekFrom: Number(availabilityFrom), weekTo: Number(availabilityTo) });
       }
       setShowExport(false);
     } catch (err) {
@@ -194,10 +227,7 @@ export default function Dashboard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <FilterBar {...filters} showDateFilter={false} />
         <button
-          onClick={() => {
-            setExportError('');
-            setShowExport(true);
-          }}
+          onClick={openExport}
           className="px-4 py-2 rounded-md bg-brand-red text-white text-sm font-medium shrink-0"
         >
           Export
@@ -274,6 +304,9 @@ export default function Dashboard({
           error={exportError}
           getReportWeeks={getReportWeeks}
           getWeeklyTrendWeeks={getWeeklyTrendWeeks}
+          availabilityWeeks={availabilityWeeks}
+          availabilityWeeksLoading={availabilityWeeksLoading}
+          availabilityWeeksError={availabilityWeeksError}
         />
       )}
 

@@ -251,13 +251,9 @@ export default function UploadPanel({
 
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h2 className="font-semibold text-slate-800 mb-1">Availability</h2>
-        <p className="text-sm text-slate-500 mb-4">
-          Upload file Availability RAN mingguan (mis. Avail_RAN_ReconENOM). Yang disimpan: period (202641 = W41), regional, dan
-          availability (%). Data dipakai untuk export PPT Availability Trend di Dashboard. Hanya data yang belum ada yang ditambahkan; minggu yang sudah tersimpan dilewati dan tidak ditimpa.
-        </p>
         <div className="flex items-center gap-4 flex-wrap">
           <FileSlot
-            label="Availability RAN (CSV/Excel)"
+            label="Availability (CSV/Excel)"
             file={availFile}
             onChange={onAvailFileChange}
           />

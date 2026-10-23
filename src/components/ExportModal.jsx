@@ -24,7 +24,7 @@ function Check({ checked, onChange, disabled, children, className = '' }) {
  * `getReportWeeks()` mengembalikan daftar minggu yang punya data: [{ key, label }] (terbaru dulu).
  * Komponen ini di-mount hanya saat dibuka, jadi pilihan selalu mulai dari default.
  */
-export default function ExportModal({ onClose, onConfirm, exporting, error, getReportWeeks, getWeeklyTrendWeeks }) {
+export default function ExportModal({ onClose, onConfirm, exporting, error, getReportWeeks, getWeeklyTrendWeeks, availabilityWeeks = [], availabilityWeeksLoading = false, availabilityWeeksError = '' }) {
   const [excel, setExcel] = useState(false);
   const [uploadDateFrom, setUploadDateFrom] = useState('');
   const [uploadDateTo, setUploadDateTo] = useState('');
@@ -34,6 +34,8 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const [availability, setAvailability] = useState(false);
   const [weekFromState, setWeekFromState] = useState(null);
   const [weekToState, setWeekToState] = useState(null);
+  const [availabilityFromState, setAvailabilityFromState] = useState(null);
+  const [availabilityToState, setAvailabilityToState] = useState(null);
 
   const periodOptions = useMemo(() => (getReportWeeks ? getReportWeeks() : []), [getReportWeeks]);
   const weeklyOptions = useMemo(() => (getWeeklyTrendWeeks ? getWeeklyTrendWeeks() : []), [getWeeklyTrendWeeks]);
@@ -43,9 +45,12 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const weekFrom = weeklyOptions.some((option) => option.key === weekFromState) ? weekFromState : weeklyOptions[0]?.key || null;
   const weekTo = weeklyOptions.some((option) => option.key === weekToState) ? weekToState : weeklyOptions[0]?.key || null;
   const weeklyReady = Boolean(weekFrom && weekTo && weekFrom <= weekTo);
+  const availabilityFrom = availabilityWeeks.some((option) => option.key === availabilityFromState) ? availabilityFromState : availabilityWeeks[0]?.key || null;
+  const availabilityTo = availabilityWeeks.some((option) => option.key === availabilityToState) ? availabilityToState : availabilityWeeks.at(-1)?.key || null;
+  const availabilityReady = Boolean(availabilityFrom && availabilityTo && Number(availabilityFrom) <= Number(availabilityTo));
 
   const uploadDateInvalid = excel && (!uploadDateFrom || !uploadDateTo || uploadDateFrom > uploadDateTo);
-  const canExport = !exporting && !uploadDateInvalid && (excel || (reportPpt && reportReady) || (trendWeekly && weeklyReady) || availability) && !(reportPpt && !reportReady) && !(trendWeekly && !weeklyReady);
+  const canExport = !exporting && !uploadDateInvalid && (excel || (reportPpt && reportReady) || (trendWeekly && weeklyReady) || (availability && availabilityReady)) && !(reportPpt && !reportReady) && !(trendWeekly && !weeklyReady) && !(availability && !availabilityReady);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -190,6 +195,36 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               Trend weekly availability Area 1 dan per regional (Sumbagut, Sumbagteng, Sumbagsel) dari data yang diupload di menu Upload &gt; Availability.
               Tidak mengikuti filter Dashboard.
             </p>
+            {availability && (
+              <div className="ml-6 mt-3 grid grid-cols-1 gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
+                <label className="text-xs font-medium text-slate-600">
+                  Minggu awal
+                  <select
+                    value={availabilityFrom || ''}
+                    onChange={(event) => setAvailabilityFromState(event.target.value)}
+                    disabled={exporting || availabilityWeeksLoading || !availabilityWeeks.length}
+                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
+                  >
+                    {availabilityWeeks.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-slate-600">
+                  Minggu akhir
+                  <select
+                    value={availabilityTo || ''}
+                    onChange={(event) => setAvailabilityToState(event.target.value)}
+                    disabled={exporting || availabilityWeeksLoading || !availabilityWeeks.length}
+                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
+                  >
+                    {availabilityWeeks.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                  </select>
+                </label>
+                {availabilityWeeksLoading && <p className="text-[11px] text-slate-500 sm:col-span-2">Memuat minggu Availability...</p>}
+                {!availabilityWeeksLoading && availabilityWeeksError && <p className="text-[11px] text-red-500 sm:col-span-2">{availabilityWeeksError}</p>}
+                {!availabilityWeeksLoading && !availabilityWeeksError && !availabilityWeeks.length && <p className="text-[11px] text-red-500 sm:col-span-2">Belum ada data Availability lengkap untuk ketiga regional.</p>}
+                {availabilityWeeks.length > 0 && !availabilityReady && <p className="text-[11px] text-red-500 sm:col-span-2">Minggu awal tidak boleh melewati minggu akhir.</p>}
+              </div>
+            )}
           </div>
         </div>
 
@@ -209,7 +244,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
           <button
             type="button"
             disabled={!canExport}
-            onClick={() => onConfirm({ excel, reportPpt, trendWeekly, availability, reportKey, weekFrom, weekTo, uploadDateFrom, uploadDateTo })}
+            onClick={() => onConfirm({ excel, reportPpt, trendWeekly, availability, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, uploadDateFrom, uploadDateTo })}
             className="rounded-md bg-brand-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {exporting ? 'Mengekspor...' : 'Export'}

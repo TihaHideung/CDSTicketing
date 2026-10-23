@@ -55,15 +55,22 @@ const round2 = (n) => Math.round(n * 100) / 100;
  * Area 1 = 100 * (1 - total outage / total denum) kalau outage & denum tersedia di ketiga regional,
  * kalau tidak, rata-rata sederhana ketiga regional.
  */
-export function buildAvailabilitySeries(rows) {
+export function buildAvailabilitySeries(rows, { weekFrom, weekTo } = {}) {
   const valid = (rows || []).filter((r) => /^\d{6}$/.test(String(r.period)) && REGIONS.includes(r.regional) && Number.isFinite(Number(r.availability)));
   if (!valid.length) throw new Error('Belum ada data availability. Upload dulu di menu Upload > Availability.');
+
+  const from = weekFrom == null ? null : Number(weekFrom);
+  const to = weekTo == null ? null : Number(weekTo);
+  if ((from != null && !Number.isInteger(from)) || (to != null && !Number.isInteger(to)) || (from != null && to != null && from > to)) {
+    throw new Error('Rentang minggu Availability tidak valid.');
+  }
 
   const latestYear = Math.max(...valid.map((r) => Math.floor(Number(r.period) / 100)));
   const byPeriod = new Map();
   for (const r of valid) {
     const period = Number(r.period);
     if (Math.floor(period / 100) !== latestYear) continue;
+    if ((from != null && period < from) || (to != null && period > to)) continue;
     if (!byPeriod.has(period)) byPeriod.set(period, {});
     byPeriod.get(period)[REGION_ROW_KEY[r.regional]] = r;
   }
@@ -132,35 +139,13 @@ function axisRange(values) {
 // ---------------------------------------------------------------- chart XML post-process
 
 const MARKER_COLOR = { max: C.hiMax, min: C.hiMin, cur: C.hiCur };
-const LABEL_POS = { max: 't', min: 'b', cur: 'r' };
+const LABEL_BG = { max: 'E2F0D9', min: 'F4CCCC', cur: 'FCE4D6' };
 
 function dPtXml(idx, kind) {
   return (
     `<c:dPt><c:idx val="${idx}"/><c:marker><c:symbol val="circle"/><c:size val="7"/>` +
     `<c:spPr><a:solidFill><a:srgbClr val="${MARKER_COLOR[kind]}"/></a:solidFill>` +
     `<a:ln w="9525"><a:solidFill><a:srgbClr val="${C.line}"/></a:solidFill></a:ln></c:spPr></c:marker><c:bubble3D val="0"/></c:dPt>`
-  );
-}
-
-function dLblXml(idx, kind, size) {
-  const rPr = `sz="${size}" b="1"`;
-  const fill = `<a:solidFill><a:srgbClr val="${C.ink}"/></a:solidFill><a:latin typeface="${FONT}"/>`;
-  return (
-    `<c:dLbl><c:idx val="${idx}"/>` +
-    '<c:numFmt formatCode="0.00" sourceLinked="0"/>' +
-    '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>' +
-    `<c:txPr><a:bodyPr wrap="none"/><a:lstStyle/><a:p><a:pPr><a:defRPr ${rPr}>${fill}</a:defRPr></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>` +
-    `<c:dLblPos val="${LABEL_POS[kind]}"/><c:showLegendKey val="0"/><c:showVal val="1"/><c:showCatName val="1"/>` +
-    '<c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/><c:separator>\n</c:separator></c:dLbl>'
-  );
-}
-
-function dLblsXml(highlights, size) {
-  return (
-    `<c:dLbls>${highlights.map((h) => dLblXml(h.idx, h.kind, size)).join('')}` +
-    '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>' +
-    '<c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/><c:showSerName val="0"/>' +
-    '<c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbls>'
   );
 }
 
@@ -209,7 +194,7 @@ async function postProcessCharts(arrayBuffer, specs) {
       const points = specs[i].highlights.map((h) => dPtXml(h.idx, h.kind)).join('');
       const newSer =
         `<c:ser><c:idx val="2"/><c:order val="2"/>${tx}${spPr}<c:marker><c:symbol val="none"/></c:marker>` +
-        `${points}${dLblsXml(specs[i].highlights, specs[i].labelSize)}${cat}${val}<c:smooth val="1"/></c:ser>`;
+        `${points}${cat}${val}<c:smooth val="1"/></c:ser>`;
       return `${open}<c:grouping val="standard"/><c:varyColors val="0"/>${newSer}`;
     });
     // Sisa lineChart setelah </c:ser>: buang dLbls level chart bawaan, sisakan marker + axId.
@@ -249,8 +234,12 @@ function addBadge(slide, delta, x, y, w, h, fontSize, objectName) {
   });
 }
 
-function addTrendChart(pptx, slide, { x, y, w, h, labels, values, skip, labelSize }) {
-  const { min, max } = axisRange(values);
+function addTrendChart(pptx, slide, { x, y, w, h, labels, values, skip, labelSize, range }) {
+  const { min, max } = range || axisRange(values);
+  const highlights = pickHighlights(values);
+  const labelWidth = 0.52;
+  const labelHeight = 0.3;
+  const labelGap = 0.06;
   const series = [{ name: 'Availability (%)', labels, values }];
   slide.addChart(
     [
@@ -276,11 +265,26 @@ function addTrendChart(pptx, slide, { x, y, w, h, labels, values, skip, labelSiz
       showBorder: false,
     }
   );
-  return { highlights: pickHighlights(values), labelSize };
+  highlights.forEach(({ idx, kind }) => {
+    const plotX = x + 0.1 + ((w - 0.2) * idx) / Math.max(labels.length - 1, 1);
+    const labelX = Math.max(x, Math.min(x + w - labelWidth, plotX - labelWidth / 2));
+    const plotTop = y + 0.12;
+    const plotBottom = y + h - 0.42;
+    const pointY = plotTop + ((max - values[idx]) / (max - min)) * (plotBottom - plotTop);
+    const labelY = Math.max(y + 0.01, pointY - labelHeight - labelGap);
+    slide.addText(`${labels[idx]}\n${fmt2(values[idx])}`, {
+      x: labelX, y: labelY, w: labelWidth, h: labelHeight,
+      margin: 0.02, fontFace: FONT, fontSize: labelSize / 100, bold: true,
+      color: C.ink, align: 'center', valign: 'middle',
+      fill: { color: LABEL_BG[kind] }, line: { color: LABEL_BG[kind], transparency: 100 },
+      fit: 'shrink', isTextBox: true, objectName: `Label ${labels[idx]}`,
+    });
+  });
+  return { highlights };
 }
 
-export async function buildAvailabilityPptx({ rows, logoData }) {
-  const { labels, byRegion, area } = buildAvailabilitySeries(rows);
+export async function buildAvailabilityPptx({ rows, logoData, weekFrom, weekTo }) {
+  const { labels, byRegion, area } = buildAvailabilitySeries(rows, { weekFrom, weekTo });
   const last = labels.length - 1;
   const lastLabel = labels[last];
   const rangeText = `${labels[0]}-${lastLabel}`;
@@ -306,7 +310,7 @@ export async function buildAvailabilityPptx({ rows, logoData }) {
     x: 0.32, y: 0.41, w: 8.5, h: 0.24, margin: 0,
     fontFace: FONT, fontSize: 15, color: C.subtitleInk, valign: 'middle', isTextBox: true, objectName: 'Subjudul',
   });
-  if (logoData) slide.addImage({ data: logoData, x: 10.2, y: 0.14, w: 2.97, h: 0.575, objectName: 'Logo' });
+  if (logoData) slide.addImage({ data: logoData, x: 10.64, y: 0.14, w: 2.53, h: 0.575, objectName: 'Logo' });
   slide.addShape(pptx.ShapeType.rect, { x: 0, y: 7.36, w: 13.333, h: 0.14, fill: { color: C.footer }, line: { color: C.footer, width: 0 }, objectName: 'Footer' });
 
   const specs = [];
@@ -321,14 +325,20 @@ export async function buildAvailabilityPptx({ rows, logoData }) {
     x: 0.57, y: 2.15, w: 2.9, h: 0.85, margin: 0,
     fontFace: FONT, fontSize: 48, bold: true, color: C.ink, isTextBox: true, objectName: 'Area KPI Value',
   });
-  addBadge(slide, buildDelta(area, labels, true), 0.57, 3.12, 2.75, 0.34, 12, 'Area Badge');
-  specs.push(addTrendChart(pptx, slide, { x: 3.0, y: 0.96, w: 9.8, h: 3.04, labels, values: area, skip: 1, labelSize: 900 }));
+  addBadge(slide, buildDelta(area, labels, true), 0.40, 3.12, 2.75, 0.34, 12, 'Area Badge');
+  specs.push(addTrendChart(pptx, slide, { x: 3.0, y: 0.96, w: 9.8, h: 3.04, labels, values: area, skip: 1, labelSize: 800 }));
 
   // ---- Tiga kartu bawah: per regional
   const cardW = 4.12;
   const cardXs = [0.36, 4.53, 8.75];
   const cardY = 4.17;
   const cardH = 2.95;
+  const regionalValues = REGIONS.flatMap((region) => byRegion[region]);
+  const regionalAxisRange = axisRange(regionalValues);
+  const regionalRange = {
+    min: Math.floor(Math.min(...regionalValues)),
+    max: Math.min(regionalAxisRange.max, 101),
+  };
   REGIONS.forEach((region, i) => {
     const x = cardXs[i];
     const values = byRegion[region];
@@ -337,7 +347,7 @@ export async function buildAvailabilityPptx({ rows, logoData }) {
     slide.addText(`Availability ${rangeText}`, { x: x + 0.15, y: cardY + 0.42, w: 2.3, h: 0.2, margin: 0, fontFace: FONT, fontSize: 10.5, color: C.muted, isTextBox: true, objectName: `${region} Periode` });
     slide.addText(`${fmt2(values[last])}%`, { x: x + 2.2, y: cardY + 0.04, w: 1.78, h: 0.42, margin: 0, fontFace: FONT, fontSize: 20, bold: true, color: C.ink, align: 'right', isTextBox: true, objectName: `${region} Angka` });
     addBadge(slide, buildDelta(values, labels, false), x + 2.2, cardY + 0.5, 1.78, 0.29, 9, `${region} Badge`);
-    specs.push(addTrendChart(pptx, slide, { x: x + 0.02, y: cardY + 0.8, w: cardW - 0.04, h: 2.1, labels, values, skip: 3, labelSize: 800 }));
+    specs.push(addTrendChart(pptx, slide, { x: x + 0.02, y: cardY + 0.8, w: cardW - 0.04, h: 2.1, labels, values, skip: 3, labelSize: 700, range: regionalRange }));
   });
 
   const buffer = await pptx.write({ outputType: 'arraybuffer' });
@@ -361,10 +371,10 @@ async function loadLogoDataUrl() {
   }
 }
 
-export async function exportAvailabilityPpt({ rows, fileName }) {
-  const { labels, year } = buildAvailabilitySeries(rows); // validasi data lebih awal (error jelas kalau kosong)
+export async function exportAvailabilityPpt({ rows, fileName, weekFrom, weekTo }) {
+  const { labels, year } = buildAvailabilitySeries(rows, { weekFrom, weekTo }); // validasi data lebih awal (error jelas kalau kosong)
   const logoData = await loadLogoDataUrl();
-  const buffer = await buildAvailabilityPptx({ rows, logoData });
+  const buffer = await buildAvailabilityPptx({ rows, logoData, weekFrom, weekTo });
   const outputName = fileName || `CDS_Monitoring_Availability_Trend_Area_1_${year}_${labels[0]}_${labels[labels.length - 1]}.pptx`;
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
   const url = URL.createObjectURL(blob);

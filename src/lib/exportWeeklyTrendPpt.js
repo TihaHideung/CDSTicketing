@@ -38,9 +38,9 @@ const C = {
 
 // Warna garis & tint label per regional. Ganti di sini kalau ingin warna lain.
 const REGION_STYLE = {
-  Sumbagut: { line: 'E0301E', tint: 'FBD9D5' },
-  Sumbagteng: { line: '0070C0', tint: 'D6E9F7' },
-  Sumbagsel: { line: '00B050', tint: 'D5F0DE' },
+  Sumbagut: { line: 'E0301E', tint: 'FBD9D5', bar: 'E0301E' },
+  Sumbagteng: { line: '0070C0', tint: 'D6E9F7', bar: '0070C0' },
+  Sumbagsel: { line: '00B050', tint: 'D5F0DE', bar: '00B050' },
 };
 const FALLBACK_STYLE = { line: '64748B', tint: 'E2E8F0' };
 
@@ -68,15 +68,18 @@ function buildDelta(lastValue, prevValue, prevLabel, withPrevValue = false) {
   return { text: `${word} ${fmt(Math.abs(diff))} ${unit} vs ${prevLabel}${suffix}`, kind: diff > 0 ? 'up' : 'down' };
 }
 
-// Titik yang diberi label: awal (opsional), puncak, titik tengah (opsional), akhir.
+// Titik yang diberi label: minimum, puncak, akhir, plus awal/tengah bila diminta.
 function pickLabelIndexes(values, { first = false, mid = false } = {}) {
   const last = values.length - 1;
   const set = new Set([last]);
   let peak = 0;
+  let trough = 0;
   values.forEach((v, i) => {
     if (v > values[peak]) peak = i;
+    if (v < values[trough]) trough = i;
   });
   set.add(peak);
+  set.add(trough);
   if (first && peak > 2) set.add(0); // kalau puncak menempel di awal, cukup satu label
   if (mid && values.length >= 9) {
     const m = Math.round(last / 2);
@@ -185,12 +188,30 @@ async function injectDataLabels(arrayBuffer, chartSpecs, table) {
     const path = `ppt/charts/chart${i + 1}.xml`;
     const file = zip.file(path);
     if (!file) continue;
-    const replacement = dLblsXml(chartSpecs[i]);
     let xml = await file.async('string');
+    const spec = chartSpecs[i];
+
+    xml = xml.replace(/(<c:barChart>[\s\S]*?<c:ser>[\s\S]*?<\/c:tx>\s*)<c:spPr>[\s\S]*?<\/c:spPr>/, `$1<c:spPr><a:solidFill><a:srgbClr val="${spec.barColor}"><a:alpha val="42000"/></a:srgbClr></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr>`);
+    xml = xml.replace(/(<c:lineChart>)([\s\S]*?)(<c:ser>)([\s\S]*?)(<\/c:ser>)/, (match, open, before, serOpen, ser, serClose) => {
+      const tx = ser.match(/<c:tx>[\s\S]*?<\/c:tx>/)[0];
+      const cat = ser.match(/<c:cat>[\s\S]*?<\/c:cat>/)[0];
+      const val = ser.match(/<c:val>[\s\S]*?<\/c:val>/)[0];
+      const lineStyle = `<c:spPr><a:ln w="22225"><a:solidFill><a:srgbClr val="${spec.color}"/></a:solidFill><a:round/></a:ln></c:spPr>`;
+      const lineSeries =
+        `<c:ser><c:idx val="2"/><c:order val="2"/>${tx}${lineStyle}<c:marker><c:symbol val="circle"/><c:size val="5"/></c:marker>` +
+        `${dLblsXml(spec)}${cat}${val}<c:smooth val="0"/></c:ser>`;
+      return `${open}<c:grouping val="standard"/><c:varyColors val="0"/>${lineSeries}`;
+    });
+    xml = xml.replace(/(<c:lineChart>[\s\S]*?<\/c:ser>)([\s\S]*?)(<\/c:lineChart>)/, (match, head, rest, close) => {
+      const axisIds = (rest.match(/<c:axId val="\d+"\/>/g) || []).slice(0, 2).join('');
+      return `${head}<c:marker val="1"/>${axisIds}${close}`;
+    });
+    xml = xml.replace(/(<c:barChart>[\s\S]*?)(<c:axId val="\d+"\/>)(<c:axId val="\d+"\/>)(<c:axId val="\d+"\/>)(<\/c:barChart>)/, '$1$2$3$5');
+    xml = xml.replace(/(<c:noMultiLvlLbl val="\d"\/>)[\s\S]*?(<c:tickLblSkip val="\d+"\/>)/, '$2$1');
+
     // Ganti dLbls milik series (di dalam <c:ser>), bukan dLbls level chart.
-    xml = xml.replace('<c:crossBetween val="between"/>', '<c:crossBetween val="midCat"/>');
     xml = xml.replace('<a:bodyPr rot="16200000"/>', '<a:bodyPr rot="-5400000" vert="horz"/>');
-    xml = xml.replace(/(<c:ser>[\s\S]*?)<c:dLbls>[\s\S]*?<\/c:dLbls>([\s\S]*?<\/c:ser>)/, `$1${replacement}$2`);
+    xml = xml.replace('<c:roundedCorners val="1"/>', '<c:roundedCorners val="0"/>');
     // Tiap chart menunjuk kolomnya sendiri di tabel lengkap tsb.
     const L = colLetter(chartSpecs[i].col + 1);
     xml = xml.replace(/Sheet1!\$B\$1/g, () => `Sheet1!$${L}$1`);
@@ -231,7 +252,7 @@ function addBadge(slide, delta, x, y, w, objectName) {
   });
 }
 
-function chartOptions({ x, y, w, h, color, max, skip }) {
+function chartOptions({ x, y, w, h, color, min = 0, max, skip, showYAxis = false }) {
   return {
     x, y, w, h,
     showTitle: false,
@@ -242,10 +263,15 @@ function chartOptions({ x, y, w, h, color, max, skip }) {
     lineDataSymbolSize: 5,
     lineSmooth: false,
     showValue: false,
-    valAxisHidden: true,
-    valAxisMinVal: 0,
+    valAxisHidden: !showYAxis,
+    valAxisMinVal: min,
     valAxisMaxVal: max,
     valGridLine: { style: 'none' },
+    valAxisLabelFontFace: FONT,
+    valAxisLabelFontSize: 8,
+    valAxisLabelColor: C.axis,
+    valAxisLineShow: showYAxis,
+    valAxisLineColor: C.axisLine,
     catGridLine: { color: 'E3E4E0', size: 0.5, style: 'solid' }, // garis vertikal tiap minggu
     catAxisLabelFontFace: FONT,
     catAxisLabelFontSize: 8,
@@ -258,6 +284,16 @@ function chartOptions({ x, y, w, h, color, max, skip }) {
     showValAxisTitle: false,
     showBorder: false,
   };
+}
+function addComboChart(pptx, slide, { name, labels, values, color, barColor, ...options }) {
+  const series = [{ name, labels, values }];
+  slide.addChart(
+    [
+      { type: pptx.ChartType.bar, data: series, options: { chartColors: [barColor], barGapWidthPct: 60 } },
+      { type: pptx.ChartType.line, data: series, options: { chartColors: [color], lineSize: 1.75, lineDataSymbol: 'circle', lineDataSymbolSize: 5, lineSmooth: false } },
+    ],
+    chartOptions({ ...options, color })
+  );
 }
 
 export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData }) {
@@ -273,6 +309,11 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
   const prevTotal = prevValues ? REGIONS.reduce((s, region) => s + prevValues[region], 0) : null;
 
   const { labels, byRegion, total } = buildSeries(selected);
+  const regionalValues = REGIONS.flatMap((region) => byRegion[region]);
+  const regionalRange = {
+    min: Math.floor(Math.min(...regionalValues)),
+    max: Math.ceil(Math.max(...regionalValues) * 1.25) || 10,
+  };
   const lastLabel = labels[labels.length - 1];
   const rangeText = `${labels[0]}-${lastLabel}`;
   const lastTotal = total[total.length - 1];
@@ -305,7 +346,7 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
     }
   );
   if (logoData) {
-    slide.addImage({ data: logoData, x: 10.41, y: 0.21, w: 2.59, h: 0.48, objectName: 'Logo' });
+    slide.addImage({ data: logoData, x: 10.64, y: 0.14, w: 2.53, h: 0.575, objectName: 'Logo' });
   }
 
   // ---- Kartu atas: total semua regional
@@ -328,15 +369,16 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
 
   // chart1.xml = total
   const chartSpecs = [];
-  slide.addChart(
-    pptx.ChartType.line,
-    [{ name: AREA_LABEL, labels, values: total }],
-    chartOptions({ x: 3.71, y: 1.06, w: 8.76, h: 2.53, color: C.totalLine, max: Math.max(...total) * 1.22 || 10, skip: 1 })
-  );
+  addComboChart(pptx, slide, {
+    name: AREA_LABEL, labels, values: total, color: C.totalLine, barColor: C.totalLine,
+    x: 3.71, y: 1.06, w: 8.76, h: 2.53, max: Math.max(...total) * 1.22 || 10, skip: 1,
+  });
   chartSpecs.push({
     col: REGIONS.length,
     labels,
     values: total,
+    color: C.totalLine,
+    barColor: C.totalLine,
     indexes: pickLabelIndexes(total, { first: true, mid: true }),
     format: (label, value) => `${label}: ${fmt(value)}`,
     style: { size: 1200, bold: true, color: C.ink, fill: null },
@@ -347,10 +389,15 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
   const cardXs = [0.67, 4.73, 8.78];
   const cardY = 3.74;
   const cardH = 3.02;
-
   REGIONS.forEach((region, i) => {
     const x = cardXs[i];
     const values = byRegion[region];
+    const lowest = Math.min(...values);
+    const highest = Math.max(...values);
+    const regionalRange = {
+      min: Math.max(0, Math.ceil(lowest / 5) * 5 - 5),
+      max: Math.floor(highest / 5) * 5 + 5,
+    };
     const style = REGION_STYLE[region] || FALLBACK_STYLE;
     const lastValue = values[values.length - 1];
 
@@ -380,15 +427,16 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
       x + 1.78, cardY + 0.5, cardW - 1.98, `${region} Badge`
     );
 
-    slide.addChart(
-      pptx.ChartType.line,
-      [{ name: region, labels, values }],
-      chartOptions({ x, y: cardY + 0.82, w: cardW, h: 2.14, color: style.line, max: Math.max(...values) * 1.25 || 10, skip: 2 })
-    );
+    addComboChart(pptx, slide, {
+      name: region, labels, values, color: style.line, barColor: style.bar,
+      x, y: cardY + 0.82, w: cardW, h: 2.14, ...regionalRange, skip: 1, showYAxis: true,
+    });
     chartSpecs.push({
       col: i,
       labels,
       values,
+      color: style.line,
+      barColor: style.bar,
       indexes: pickLabelIndexes(values, { mid: true }),
       format: null,
       style: { size: 900, bold: false, color: C.ink, fill: style.tint },
