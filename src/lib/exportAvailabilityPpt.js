@@ -334,7 +334,8 @@ export async function buildAvailabilityPptx({ rows, logoData, weekFrom, weekTo }
   const regionalAxisRange = axisRange(regionalValues);
   const regionalRange = {
     min: Math.floor(Math.min(...regionalValues)),
-    max: Math.min(regionalAxisRange.max, 101),
+    max: Math.min(regionalAxisRange.max, 100
+    ),
   };
   REGIONS.forEach((region, i) => {
     const x = cardXs[i];
