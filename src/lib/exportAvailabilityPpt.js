@@ -94,22 +94,19 @@ export function buildAvailabilitySeries(rows, { weekFrom, weekTo } = {}) {
   return { year: latestYear, periods, labels, byRegion, area };
 }
 
-// Tertinggi, terendah (di luar minggu saat ini), dan minggu saat ini (terakhir).
-// Titik terendah tidak diambil dari minggu tepat sebelum minggu saat ini, karena labelnya akan
-// menumpuk dengan label minggu saat ini (sama seperti PPT contoh: Sumbagteng memakai W29, bukan W40).
+// Tertinggi, terendah sebelum minggu terakhir, dan minggu saat ini (terakhir).
 export function pickHighlights(values) {
   const last = values.length - 1;
   if (last < 1) return [{ idx: last, kind: 'cur' }];
-  const minPool = last >= 3 ? last - 1 : last; // indeks < minPool dipertimbangkan
   let max = 0;
   let min = 0;
   for (let i = 0; i < last; i++) if (values[i] > values[max]) max = i;
-  for (let i = 0; i < minPool; i++) if (values[i] < values[min]) min = i;
+  for (let i = 1; i < last; i++) if (values[i] < values[min]) min = i;
   // Tertinggi dihitung dari seluruh deret; kalau minggu saat ini yang tertinggi, cukup satu label.
   const maxIsCurrent = values[last] > values[max];
   const out = [];
   if (!maxIsCurrent) out.push({ idx: max, kind: 'max' });
-  if (min !== max && min !== last) out.push({ idx: min, kind: 'min' });
+  if (min !== max) out.push({ idx: min, kind: 'min' });
   out.push({ idx: last, kind: 'cur' });
   return out.sort((a, b) => a.idx - b.idx);
 }
