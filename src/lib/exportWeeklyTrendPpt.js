@@ -66,7 +66,7 @@ function formatDayMonth(dateKey) {
 }
 
 function formatAverage(value) {
-  return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(value);
+  return fmt(Math.round(value));
 }
 
 function analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, selectedKeys) {
@@ -108,7 +108,7 @@ function analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, selectedKeys) {
 
 function buildExtremeIncreaseSummary(increases) {
   return increases.map(({ label, previousLabel, contributor }) => (
-    `${label}: NOP ${contributor.nop}, rata-rata ${previousLabel} ${formatAverage(contributor.previousAverage)}, rata-rata ${label} ${formatAverage(contributor.currentAverage)}; kenaikan tertinggi pada ${formatDayMonth(contributor.peak.date)} (${fmt(contributor.peak.value)}).`
+    `${label}: ${contributor.nop}, rata-rata ${previousLabel} ${formatAverage(contributor.previousAverage)}, rata-rata ${label} ${formatAverage(contributor.currentAverage)}; kenaikan tertinggi pada ${formatDayMonth(contributor.peak.date)} (${fmt(contributor.peak.value)}).`
   )).join(' ');
 }
 
@@ -503,12 +503,14 @@ export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], fromWeek, 
   if (increaseSummary) {
     slide.addText('Penyebab Kenaikan', {
       x: 0.72, y: 6.82, w: 11.9, h: 0.2, margin: 0,
-      fontFace: FONT, fontSize: 9, bold: true, color: C.ink,
+      fontFace: FONT, fontSize: 12, bold: true, color: C.ink,
+      fill: { color: 'FFFF00' },
       isTextBox: true, objectName: 'Judul Penyebab Kenaikan',
     });
     slide.addText(increaseSummary, {
       x: 0.72, y: 7.02, w: 11.9, h: 0.4, margin: 0,
-      fontFace: FONT, fontSize: 8.5, color: C.ink, valign: 'top',
+      fontFace: FONT, fontSize: 12, color: C.ink, valign: 'top',
+      fill: { color: 'FFFF00' },
       breakLine: false, fit: 'shrink', isTextBox: true, objectName: 'Ringkasan Penyebab Kenaikan',
     });
   }
