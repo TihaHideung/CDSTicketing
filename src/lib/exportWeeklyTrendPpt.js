@@ -97,11 +97,11 @@ function analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, selectedKeys) {
       const peak = currentDays
         .map((day) => ({ date: day.date, value: Number(day.byNop?.[nop]) || 0 }))
         .sort((a, b) => b.value - a.value || a.date.localeCompare(b.date))[0];
-      const firstDecline = currentDays
+      const largestDecline = currentDays
         .filter((day) => day.date > peak.date && (Number(day.byNop?.[nop]) || 0) < peak.value)
         .map((day) => ({ date: day.date, value: Number(day.byNop?.[nop]) || 0 }))
-        .sort((a, b) => a.date.localeCompare(b.date))[0] || null;
-      return { nop, currentAverage, previousAverage, increase, peak, firstDecline };
+        .sort((a, b) => a.value - b.value || a.date.localeCompare(b.date))[0] || null;
+      return { nop, currentAverage, previousAverage, increase, peak, largestDecline };
     }).filter(Boolean).sort((a, b) => b.increase - a.increase);
 
     if (candidates.length) results.push({ label: row.label, previousLabel: previous.label, contributor: candidates[0] });
@@ -112,8 +112,8 @@ function analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, selectedKeys) {
 
 function buildExtremeIncreaseSummary(increases) {
   return increases.map(({ label, previousLabel, contributor }) => {
-    const declineText = contributor.firstDecline
-      ? ` Pada ${formatDayMonth(contributor.firstDecline.date)} sudah mulai mengalami penurunan (${fmt(contributor.firstDecline.value)}).`
+    const declineText = contributor.largestDecline
+      ? ` Pada ${formatDayMonth(contributor.largestDecline.date)} mengalami penurunan terbesar (${fmt(contributor.largestDecline.value)}).`
       : '';
     return `${label}: ${contributor.nop}, rata-rata ${previousLabel} = ${formatAverage(contributor.previousAverage)}, rata-rata ${label} = ${formatAverage(contributor.currentAverage)}; kenaikan tertinggi pada ${formatDayMonth(contributor.peak.date)} (${fmt(contributor.peak.value)}).${declineText}`;
   }).join(' ');
