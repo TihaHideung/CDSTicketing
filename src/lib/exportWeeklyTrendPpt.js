@@ -1,6 +1,7 @@
 import pptxgen from 'pptxgenjs';
 import JSZip from 'jszip';
 import { REGIONS } from './constants.js';
+import { getPeriodBucket } from './aggregate.js';
 
 /*
  * Export "Trend Weekly Cell Down | Area 1 & Regional"
@@ -45,6 +46,8 @@ const REGION_STYLE = {
 const FALLBACK_STYLE = { line: '64748B', tint: 'E2E8F0' };
 
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n));
+const EXTREME_MIN_WEEKLY_INCREASE = 200;
+const EXTREME_MIN_WEEKLY_MULTIPLIER = 3;
 
 // ---------------------------------------------------------------- data helpers
 
@@ -55,6 +58,58 @@ function buildSeries(rows) {
   );
   const total = rows.map((_, i) => REGIONS.reduce((sum, region) => sum + byRegion[region][i], 0));
   return { labels, byRegion, total };
+}
+
+function formatDayMonth(dateKey) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short' }).format(date);
+}
+
+function formatAverage(value) {
+  return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(value);
+}
+
+function analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, selectedKeys) {
+  const results = [];
+  const selectedKeySet = new Set(selectedKeys);
+  const sortedDaily = (dailyNopRows || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+  const dailyByWeek = new Map();
+  for (const daily of sortedDaily) {
+    const weekKey = getPeriodBucket(daily.date, 'weekly').key;
+    if (!dailyByWeek.has(weekKey)) dailyByWeek.set(weekKey, []);
+    dailyByWeek.get(weekKey).push(daily);
+  }
+  const allNops = [...new Set(sortedDaily.flatMap((row) => Object.keys(row.byNop || {})))];
+
+  allRows.forEach((row, index) => {
+    if (!selectedKeySet.has(row.key) || index === 0) return;
+    const previous = allRows[index - 1];
+    const currentDays = dailyByWeek.get(row.key) || [];
+    const previousDays = dailyByWeek.get(previous.key) || [];
+    if (!currentDays.length || !previousDays.length) return;
+
+    const candidates = allNops.map((nop) => {
+      const currentAverage = currentDays.reduce((sum, day) => sum + (Number(day.byNop?.[nop]) || 0), 0) / currentDays.length;
+      const previousAverage = previousDays.reduce((sum, day) => sum + (Number(day.byNop?.[nop]) || 0), 0) / previousDays.length;
+      const increase = currentAverage - previousAverage;
+      if (increase < EXTREME_MIN_WEEKLY_INCREASE || currentAverage < previousAverage * EXTREME_MIN_WEEKLY_MULTIPLIER) return null;
+
+      const peak = currentDays
+        .map((day) => ({ date: day.date, value: Number(day.byNop?.[nop]) || 0 }))
+        .sort((a, b) => b.value - a.value || a.date.localeCompare(b.date))[0];
+      return { nop, currentAverage, previousAverage, increase, peak };
+    }).filter(Boolean).sort((a, b) => b.increase - a.increase);
+
+    if (candidates.length) results.push({ label: row.label, previousLabel: previous.label, contributor: candidates[0] });
+  });
+
+  return results;
+}
+
+function buildExtremeIncreaseSummary(increases) {
+  return increases.map(({ label, previousLabel, contributor }) => (
+    `${label}: NOP ${contributor.nop}, rata-rata ${previousLabel} ${formatAverage(contributor.previousAverage)}, rata-rata ${label} ${formatAverage(contributor.currentAverage)}; kenaikan tertinggi pada ${formatDayMonth(contributor.peak.date)} (${fmt(contributor.peak.value)}).`
+  )).join(' ');
 }
 
 // Selisih minggu terakhir terhadap minggu sebelumnya (boleh di luar rentang terpilih).
@@ -296,7 +351,7 @@ function addComboChart(pptx, slide, { name, labels, values, color, barColor, ...
   );
 }
 
-export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData }) {
+export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], fromWeek, toWeek, logoData }) {
   const allRows = rows.slice().sort((a, b) => a.key.localeCompare(b.key));
   const selected = allRows.filter((row) => row.key >= fromWeek && row.key <= toWeek);
   if (!selected.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
@@ -317,6 +372,8 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
   const lastLabel = labels[labels.length - 1];
   const rangeText = `${labels[0]}-${lastLabel}`;
   const lastTotal = total[total.length - 1];
+  const extremeIncreases = analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, [selected[selected.length - 1].key]);
+  const increaseSummary = buildExtremeIncreaseSummary(extremeIncreases);
 
   const pptx = new pptxgen();
   pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
@@ -443,6 +500,19 @@ export async function buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData })
     });
   });
 
+  if (increaseSummary) {
+    slide.addText('Penyebab Kenaikan', {
+      x: 0.72, y: 6.82, w: 11.9, h: 0.2, margin: 0,
+      fontFace: FONT, fontSize: 9, bold: true, color: C.ink,
+      isTextBox: true, objectName: 'Judul Penyebab Kenaikan',
+    });
+    slide.addText(increaseSummary, {
+      x: 0.72, y: 7.02, w: 11.9, h: 0.4, margin: 0,
+      fontFace: FONT, fontSize: 8.5, color: C.ink, valign: 'top',
+      breakLine: false, fit: 'shrink', isTextBox: true, objectName: 'Ringkasan Penyebab Kenaikan',
+    });
+  }
+
   const buffer = await pptx.write({ outputType: 'arraybuffer' });
   const table = {
     labels,
@@ -468,12 +538,12 @@ async function loadLogoDataUrl() {
   }
 }
 
-export async function exportWeeklyTrendPpt({ rows, fromWeek, toWeek, fileName }) {
+export async function exportWeeklyTrendPpt({ rows, dailyNopRows, fromWeek, toWeek, fileName }) {
   const selected = rows.filter((row) => row.key >= fromWeek && row.key <= toWeek);
   if (!selected.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
 
   const logoData = await loadLogoDataUrl();
-  const buffer = await buildWeeklyTrendPptx({ rows, fromWeek, toWeek, logoData });
+  const buffer = await buildWeeklyTrendPptx({ rows, dailyNopRows, fromWeek, toWeek, logoData });
 
   const first = selected[0].label;
   const last = selected[selected.length - 1].label;

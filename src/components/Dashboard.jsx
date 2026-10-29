@@ -161,9 +161,12 @@ export default function Dashboard({
       if (trendWeekly) {
         const selectedWeeks = weeklyTrendRows.filter((row) => row.key >= weekFrom && row.key <= weekTo);
         if (!selectedWeeks.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
+        const anomalyCriteria = { ...trendCriteria, regionalFilter: ALL_KEY, category: 'CellDown' };
+        const { rows: dailyNopRows } = buildFilteredDailyTrendByNop(trendLog, anomalyCriteria);
         const { exportWeeklyTrendPpt } = await import('../lib/exportWeeklyTrendPpt.js');
         await exportWeeklyTrendPpt({
           rows: weeklyTrendRows,
+          dailyNopRows,
           fromWeek: weekFrom,
           toWeek: weekTo,
           fileName: `CDS_Monitoring_Trend_Weekly_Cell_Down_Area_1_${selectedWeeks[0].label}_${selectedWeeks[selectedWeeks.length - 1].label}.pptx`,

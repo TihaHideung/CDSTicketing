@@ -43,6 +43,12 @@ const C = {
   axisLine: 'D5D8DC',
 };
 
+// Target rata-rata availability (%), digambar sebagai garis horizontal putus-putus di tiap grafik.
+const TARGET_AREA = 98.63;
+const TARGET_REGION = { Sumbagut: 98.54, Sumbagteng: 98.45, Sumbagsel: 98.87 }; // SBU, SBT, SBS
+const TARGET_LINE_COLOR = '000000';
+const TARGET_LINE_ALPHA = 60000; // opacity 60% (satuan OOXML: per 100000)
+
 const REGION_ROW_KEY = { Sumbagut: 'Sumbagut', Sumbagteng: 'Sumbagteng', Sumbagsel: 'Sumbagsel' };
 
 const fmt2 = (n) => new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -146,6 +152,20 @@ function dPtXml(idx, kind) {
   );
 }
 
+// Seri garis target: nilai konstan, hitam putus-putus opacity 60%, tanpa marker.
+// Memakai numLit (nilai langsung di XML) sehingga tidak perlu menyentuh workbook embedded.
+function targetSerXml(catXml, target, count) {
+  const pts = Array.from({ length: count }, (_, i) => `<c:pt idx="${i}"><c:v>${target}</c:v></c:pt>`).join('');
+  return (
+    `<c:ser><c:idx val="3"/><c:order val="3"/><c:tx><c:v>Target</c:v></c:tx>` +
+    `<c:spPr><a:ln w="19050" cap="flat"><a:solidFill><a:srgbClr val="${TARGET_LINE_COLOR}"><a:alpha val="${TARGET_LINE_ALPHA}"/></a:srgbClr></a:solidFill>` +
+    `<a:prstDash val="dash"/><a:round/></a:ln></c:spPr>` +
+    `<c:marker><c:symbol val="none"/></c:marker>${catXml}` +
+    `<c:val><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${count}"/>${pts}</c:numLit></c:val>` +
+    `<c:smooth val="0"/></c:ser>`
+  );
+}
+
 // pptxgenjs menamai file chart berurutan sesuai urutan addChart (chart1.xml, chart2.xml, ...).
 // Chart kombinasi (bar + line) dari pptxgenjs belum sesuai skema OOXML dan membuat PowerPoint minta
 // "repair", jadi di sini dirapikan: seri garis disusun ulang, grouping ditambahkan, axId berlebih
@@ -197,7 +217,7 @@ async function postProcessCharts(arrayBuffer, specs) {
     // Sisa lineChart setelah </c:ser>: buang dLbls level chart bawaan, sisakan marker + axId.
     xml = xml.replace(/(<c:lineChart>[\s\S]*?<\/c:ser>)([\s\S]*?)(<\/c:lineChart>)/, (m, head, rest, close) => {
       const axIds = (rest.match(/<c:axId val="\d+"\/>/g) || []).slice(0, 2).join('');
-      return `${head}<c:marker val="1"/>${axIds}${close}`;
+      return `${head}${targetSerXml(head.match(/<c:cat>[\s\S]*?<\/c:cat>/)[0], specs[i].target, specs[i].count)}<c:marker val="1"/>${axIds}${close}`;
     });
     // Bar: axId maksimal dua.
     xml = xml.replace(/(<c:barChart>[\s\S]*?)(<c:axId val="\d+"\/>)(<c:axId val="\d+"\/>)(<c:axId val="\d+"\/>)(<\/c:barChart>)/, '$1$2$3$5');
@@ -231,8 +251,8 @@ function addBadge(slide, delta, x, y, w, h, fontSize, objectName) {
   });
 }
 
-function addTrendChart(pptx, slide, { x, y, w, h, labels, values, skip, labelSize, range }) {
-  const { min, max } = range || axisRange(values);
+function addTrendChart(pptx, slide, { x, y, w, h, labels, values, skip, labelSize, range, target }) {
+  const { min, max } = range || axisRange([...values, target]); // target ikut menentukan skala supaya garisnya selalu terlihat
   const highlights = pickHighlights(values);
   const labelWidth = 0.52;
   const labelHeight = 0.3;
@@ -262,22 +282,53 @@ function addTrendChart(pptx, slide, { x, y, w, h, labels, values, skip, labelSiz
       showBorder: false,
     }
   );
-  highlights.forEach(({ idx, kind }) => {
+  const plotTop = y + 0.12;
+  const plotBottom = y + h - 0.42;
+  const targetY = plotTop + ((max - target) / (max - min)) * (plotBottom - plotTop);
+  const targetLabelWidth = 1.05;
+  const targetLabelHeight = 0.18;
+  const targetLabelGap = 0.035;
+  const highlightLabels = highlights.map(({ idx }) => {
     const plotX = x + 0.1 + ((w - 0.2) * idx) / Math.max(labels.length - 1, 1);
-    const labelX = Math.max(x, Math.min(x + w - labelWidth, plotX - labelWidth / 2));
-    const plotTop = y + 0.12;
-    const plotBottom = y + h - 0.42;
     const pointY = plotTop + ((max - values[idx]) / (max - min)) * (plotBottom - plotTop);
-    const labelY = Math.max(y + 0.01, pointY - labelHeight - labelGap);
+    return {
+      x: Math.max(x, Math.min(x + w - labelWidth, plotX - labelWidth / 2)),
+      y: Math.max(y + 0.01, pointY - labelHeight - labelGap),
+      w: labelWidth,
+      h: labelHeight,
+    };
+  });
+  const targetLabel = {
+    x: x + 0.1,
+    y: Math.max(y + 0.01, targetY - targetLabelHeight - targetLabelGap),
+    w: targetLabelWidth,
+    h: targetLabelHeight,
+  };
+  const overlaps = (a, b) => (
+    a.x < b.x + b.w &&
+    a.x + a.w > b.x &&
+    a.y < b.y + b.h &&
+    a.y + a.h > b.y
+  );
+  if (highlightLabels.some((label) => overlaps(targetLabel, label))) {
+    targetLabel.y = Math.min(y + h - targetLabelHeight - 0.01, targetY + targetLabelGap);
+  }
+  slide.addText(`Target ${fmt2(target)}%`, {
+    ...targetLabel,
+    margin: 0, fontFace: FONT, fontSize: 7.5, bold: true,
+    color: TARGET_LINE_COLOR, align: 'left', valign: 'middle',
+    fit: 'shrink', isTextBox: true, objectName: `Target ${fmt2(target)}%`,
+  });
+  highlights.forEach(({ idx, kind }, highlightIdx) => {
     slide.addText(`${labels[idx]}\n${fmt2(values[idx])}`, {
-      x: labelX, y: labelY, w: labelWidth, h: labelHeight,
+      ...highlightLabels[highlightIdx],
       margin: 0.02, fontFace: FONT, fontSize: labelSize / 100, bold: true,
       color: C.ink, align: 'center', valign: 'middle',
       fill: { color: LABEL_BG[kind] }, line: { color: LABEL_BG[kind], transparency: 100 },
       fit: 'shrink', isTextBox: true, objectName: `Label ${labels[idx]}`,
     });
   });
-  return { highlights };
+  return { highlights, target, count: labels.length };
 }
 
 export async function buildAvailabilityPptx({ rows, logoData, weekFrom, weekTo }) {
@@ -323,14 +374,14 @@ export async function buildAvailabilityPptx({ rows, logoData, weekFrom, weekTo }
     fontFace: FONT, fontSize: 48, bold: true, color: C.ink, isTextBox: true, objectName: 'Area KPI Value',
   });
   addBadge(slide, buildDelta(area, labels, true), 0.40, 3.12, 2.75, 0.34, 12, 'Area Badge');
-  specs.push(addTrendChart(pptx, slide, { x: 3.0, y: 0.96, w: 9.8, h: 3.04, labels, values: area, skip: 1, labelSize: 800 }));
+  specs.push(addTrendChart(pptx, slide, { x: 3.0, y: 0.96, w: 9.8, h: 3.04, labels, values: area, skip: 1, labelSize: 800, target: TARGET_AREA }));
 
   // ---- Tiga kartu bawah: per regional
   const cardW = 4.12;
   const cardXs = [0.36, 4.53, 8.75];
   const cardY = 4.17;
   const cardH = 2.95;
-  const regionalValues = REGIONS.flatMap((region) => byRegion[region]);
+  const regionalValues = [...REGIONS.flatMap((region) => byRegion[region]), ...REGIONS.map((region) => TARGET_REGION[region])];
   const regionalAxisRange = axisRange(regionalValues);
   const regionalRange = {
     min: Math.floor(Math.min(...regionalValues)),
@@ -345,7 +396,7 @@ export async function buildAvailabilityPptx({ rows, logoData, weekFrom, weekTo }
     slide.addText(`Availability ${rangeText}`, { x: x + 0.15, y: cardY + 0.42, w: 2.3, h: 0.2, margin: 0, fontFace: FONT, fontSize: 10.5, color: C.muted, isTextBox: true, objectName: `${region} Periode` });
     slide.addText(`${fmt2(values[last])}%`, { x: x + 2.2, y: cardY + 0.04, w: 1.78, h: 0.42, margin: 0, fontFace: FONT, fontSize: 20, bold: true, color: C.ink, align: 'right', isTextBox: true, objectName: `${region} Angka` });
     addBadge(slide, buildDelta(values, labels, false), x + 2.2, cardY + 0.5, 1.78, 0.29, 9, `${region} Badge`);
-    specs.push(addTrendChart(pptx, slide, { x: x + 0.02, y: cardY + 0.8, w: cardW - 0.04, h: 2.1, labels, values, skip: 3, labelSize: 700, range: regionalRange }));
+    specs.push(addTrendChart(pptx, slide, { x: x + 0.02, y: cardY + 0.8, w: cardW - 0.04, h: 2.1, labels, values, skip: 3, labelSize: 700, range: regionalRange, target: TARGET_REGION[region] }));
   });
 
   const buffer = await pptx.write({ outputType: 'arraybuffer' });
