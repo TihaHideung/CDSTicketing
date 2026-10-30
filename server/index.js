@@ -53,9 +53,10 @@ async function ensureFrontendBuild() {
 }
 
 const defaultAllowedOrigins = [
+  'https://nest.dragonova.online',
+  'https://www.nest.dragonova.online',
   'https://cdsticketing.3e-sumatera.com',
   'https://www.cdsticketing.3e-sumatera.com',
-  'https://orangered-caribou-199611.hostingersite.com',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:3000',
@@ -68,17 +69,36 @@ const envAllowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .filter(Boolean);
 
 const allowedOrigins = [...new Set([...defaultAllowedOrigins, ...envAllowedOrigins])];
-const isHostingerOrigin = (origin) => typeof origin === 'string' && /(^|\.)hostingersite\.com$/i.test(origin);
+const isHostingerOrigin = (origin) => {
+  try {
+    return /(^|\.)hostingersite\.com$/i.test(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+};
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || isHostingerOrigin(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error(`Origin ${origin} tidak diizinkan oleh CORS.`));
-  },
-  credentials: true,
+// Origin yang sama dengan host yang diakses (same-origin) selalu diizinkan,
+// jadi ganti domain/subdomain tidak perlu mengubah kode lagi.
+const isSameOrigin = (origin, req) => {
+  try {
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    return !!host && new URL(origin).host === String(host).split(',')[0].trim();
+  } catch {
+    return false;
+  }
+};
+
+app.use(cors((req, callback) => {
+  const origin = req.headers.origin;
+  const allowed =
+    !origin ||
+    allowedOrigins.includes(origin) ||
+    isHostingerOrigin(origin) ||
+    isSameOrigin(origin, req);
+
+  // Jangan lempar Error (itu yang bikin 500). Kalau tidak diizinkan,
+  // cukup tanpa header CORS, browser yang akan memblokirnya.
+  callback(null, { origin: allowed, credentials: true });
 }));
 
 app.use(express.json({ limit: '50mb' }));
