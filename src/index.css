@@ -6,6 +6,33 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+.dragon-title {
+  animation: dragon-title-colors 6s linear infinite;
+  text-shadow: 0 0 2px rgb(255 255 255 / 55%);
+}
+
+@keyframes dragon-title-colors {
+  0%, 100% {
+    color: #ef4444;
+  }
+  25% {
+    color: #111827;
+  }
+  50% {
+    color: #facc15;
+  }
+  75% {
+    color: #c084fc;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dragon-title {
+    animation: none;
+    color: #ef4444;
+  }
+}
+
 .scrollbar-thin::-webkit-scrollbar {
   width: 6px;
   height: 6px;

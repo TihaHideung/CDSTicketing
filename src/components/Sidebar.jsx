@@ -24,13 +24,14 @@ export default function Sidebar({ active, onNavigate }) {
     <aside className="w-64 shrink-0 bg-navy-950 text-slate-200 flex flex-col min-h-screen">
       <div className="flex items-center gap-3 px-5 py-6 border-b border-white/10">
         <img
-          src="/triple-e-logo.png"
-          alt="Triple-E logo"
-          className="h-14 w-14 rounded-md object-contain"
+          src="/dragonova-icon.png"
+          alt="Dragonova"
+          className="h-16 w-16 rounded-full object-cover"
         />
         <div>
-          <div className="font-semibold text-white leading-tight">CDS Monitoring</div>
-          <div className="text-xs text-slate-400">Cell Down &amp; Site Down</div>
+          <div className="text-xl font-bold text-white leading-tight">
+            <span className="dragon-title">Dragon</span> Monitoring
+          </div>
         </div>
       </div>
 
