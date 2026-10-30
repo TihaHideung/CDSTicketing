@@ -2,6 +2,7 @@ import pptxgen from 'pptxgenjs';
 import JSZip from 'jszip';
 import { REGIONS } from './constants.js';
 import { getPeriodBucket } from './aggregate.js';
+import { getSlideChartPaths } from './pptxUtils.js';
 
 /*
  * Export "Trend Weekly Cell Down | Area 1 & Regional"
@@ -241,14 +242,14 @@ async function buildWorkbook(labels, columns) {
 }
 
 // pptxgenjs menamai file chart berurutan sesuai urutan addChart (chart1.xml, chart2.xml, ...).
-async function injectDataLabels(arrayBuffer, chartSpecs, table) {
-  const zip = await JSZip.loadAsync(arrayBuffer);
+// `chartPaths` = path file chart milik slide ini (urut addChart), dari getSlideChartPaths.
+export async function injectDataLabels(zip, chartPaths, chartSpecs, table) {
   // Satu tabel lengkap (Week | tiap regional | total Area) dipakai semua chart, seperti PPT Area 4.
   const workbook = await buildWorkbook(table.labels, table.columns);
   const rowCount = table.labels.length + 1;
   for (let i = 0; i < chartSpecs.length; i++) {
-    const path = `ppt/charts/chart${i + 1}.xml`;
-    const file = zip.file(path);
+    const path = chartPaths[i];
+    const file = path && zip.file(path);
     if (!file) continue;
     let xml = await file.async('string');
     const spec = chartSpecs[i];
@@ -281,11 +282,10 @@ async function injectDataLabels(arrayBuffer, chartSpecs, table) {
     zip.file(path, xml);
 
     // Ganti workbook embedded chart ini dengan tabel lengkap.
-    const relsFile = zip.file(`ppt/charts/_rels/chart${i + 1}.xml.rels`);
+    const relsFile = zip.file(path.replace(/([^/]+)$/, '_rels/$1.rels'));
     const target = relsFile && (await relsFile.async('string')).match(/Target="\.\.\/embeddings\/([^"]+\.xlsx)"/);
     if (target) zip.file(`ppt/embeddings/${target[1]}`, workbook);
   }
-  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
 }
 
 // ---------------------------------------------------------------- slide building
@@ -358,7 +358,8 @@ function addComboChart(pptx, slide, { name, labels, values, color, barColor, ...
   );
 }
 
-export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], fromWeek, toWeek, logoData }) {
+/** Tambahkan slide Trend Weekly ke deck `pptx` yang sudah ada. Mengembalikan { chartSpecs, table } untuk injectDataLabels. */
+export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], fromWeek, toWeek, logoData }) {
   const allRows = rows.slice().sort((a, b) => a.key.localeCompare(b.key));
   const selected = allRows.filter((row) => row.key >= fromWeek && row.key <= toWeek);
   if (!selected.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
@@ -381,13 +382,6 @@ export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], fromWeek, 
   const lastTotal = total[total.length - 1];
   const extremeIncreases = analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, [selected[selected.length - 1].key]);
   const increaseSummary = buildExtremeIncreaseSummary(extremeIncreases);
-
-  const pptx = new pptxgen();
-  pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
-  pptx.author = 'CDS Monitoring';
-  pptx.subject = `Trend Weekly Cell Down ${AREA_LABEL}`;
-  pptx.title = `Trend Weekly Cell Down ${AREA_LABEL}`;
-  pptx.theme = { headFontFace: TITLE_FONT, bodyFontFace: FONT, lang: 'id-ID' };
 
   const slide = pptx.addSlide();
   slide.background = { color: 'FFFFFF' };
@@ -522,12 +516,25 @@ export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], fromWeek, 
     });
   }
 
-  const buffer = await pptx.write({ outputType: 'arraybuffer' });
   const table = {
     labels,
     columns: [...REGIONS.map((region) => ({ name: region, values: byRegion[region] })), { name: AREA_LABEL, values: total }],
   };
-  return injectDataLabels(buffer, chartSpecs, table);
+  return { chartSpecs, table };
+}
+
+export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], fromWeek, toWeek, logoData }) {
+  const pptx = new pptxgen();
+  pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
+  pptx.author = 'CDS Monitoring';
+  pptx.subject = `Trend Weekly Cell Down ${AREA_LABEL}`;
+  pptx.title = `Trend Weekly Cell Down ${AREA_LABEL}`;
+  pptx.theme = { headFontFace: TITLE_FONT, bodyFontFace: FONT, lang: 'id-ID' };
+  const { chartSpecs, table } = addWeeklyTrendSlide(pptx, { rows, dailyNopRows, fromWeek, toWeek, logoData });
+  const buffer = await pptx.write({ outputType: 'arraybuffer' });
+  const zip = await JSZip.loadAsync(buffer);
+  await injectDataLabels(zip, await getSlideChartPaths(zip, 1), chartSpecs, table);
+  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
 }
 
 // ---------------------------------------------------------------- browser entry

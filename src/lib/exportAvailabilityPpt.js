@@ -1,6 +1,7 @@
 import pptxgen from 'pptxgenjs';
 import JSZip from 'jszip';
 import { REGIONS } from './constants.js';
+import { getSlideChartPaths } from './pptxUtils.js';
 
 /*
  * Export "Trend Weekly Availability | Area 1 - Regional Based" (mengikuti PPT Availability_Trend_A1).
@@ -170,24 +171,7 @@ function targetSerXml(catXml, target, count) {
 // Chart kombinasi (bar + line) dari pptxgenjs belum sesuai skema OOXML dan membuat PowerPoint minta
 // "repair", jadi di sini dirapikan: seri garis disusun ulang, grouping ditambahkan, axId berlebih
 // dibuang, dan urutan elemen sumbu kategori diperbaiki.
-async function postProcessCharts(arrayBuffer, specs) {
-  const zip = await JSZip.loadAsync(arrayBuffer);
-  const relsFile = zip.file('ppt/slides/_rels/slide1.xml.rels');
-  const relsXml = relsFile ? await relsFile.async('string') : '';
-  const chartPaths = [...relsXml.matchAll(/<Relationship\b[^>]*\/>/g)]
-    .map(([relationship]) => {
-      if (!/\bType="[^"]*\/chart"/.test(relationship)) return null;
-      const target = relationship.match(/\bTarget="([^"]+)"/)?.[1];
-      if (!target) return null;
-      const parts = target.startsWith('/') ? [] : ['ppt', 'slides'];
-      for (const part of target.split('/')) {
-        if (!part || part === '.') continue;
-        if (part === '..') parts.pop();
-        else parts.push(part);
-      }
-      return parts.join('/');
-    })
-    .filter(Boolean);
+export async function fixAvailabilityCharts(zip, chartPaths, specs) {
   if (chartPaths.length !== specs.length) {
     throw new Error(`Jumlah chart Availability tidak sesuai: ditemukan ${chartPaths.length}, diperlukan ${specs.length}.`);
   }
@@ -226,6 +210,11 @@ async function postProcessCharts(arrayBuffer, specs) {
     xml = xml.replace('<c:roundedCorners val="1"/>', '<c:roundedCorners val="0"/>');
     zip.file(path, xml);
   }
+}
+
+async function postProcessCharts(arrayBuffer, specs) {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  await fixAvailabilityCharts(zip, await getSlideChartPaths(zip, 1), specs);
   return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
 }
 
@@ -331,18 +320,12 @@ function addTrendChart(pptx, slide, { x, y, w, h, labels, values, skip, labelSiz
   return { highlights, target, count: labels.length };
 }
 
-export async function buildAvailabilityPptx({ rows, logoData, weekFrom, weekTo }) {
+/** Tambahkan slide Availability ke deck `pptx` yang sudah ada. Mengembalikan specs untuk fixAvailabilityCharts. */
+export function addAvailabilitySlide(pptx, { rows, logoData, weekFrom, weekTo }) {
   const { labels, byRegion, area } = buildAvailabilitySeries(rows, { weekFrom, weekTo });
   const last = labels.length - 1;
   const lastLabel = labels[last];
   const rangeText = `${labels[0]}-${lastLabel}`;
-
-  const pptx = new pptxgen();
-  pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
-  pptx.author = 'CDS Monitoring';
-  pptx.subject = 'Trend Weekly Availability Area 1';
-  pptx.title = 'Trend Weekly Availability Area 1';
-  pptx.theme = { headFontFace: FONT, bodyFontFace: FONT, lang: 'id-ID' };
 
   const slide = pptx.addSlide();
   slide.background = { color: 'FFFFFF' };
@@ -399,6 +382,17 @@ export async function buildAvailabilityPptx({ rows, logoData, weekFrom, weekTo }
     specs.push(addTrendChart(pptx, slide, { x: x + 0.02, y: cardY + 0.8, w: cardW - 0.04, h: 2.1, labels, values, skip: 3, labelSize: 700, range: regionalRange, target: TARGET_REGION[region] }));
   });
 
+  return specs;
+}
+
+export async function buildAvailabilityPptx({ rows, logoData, weekFrom, weekTo }) {
+  const pptx = new pptxgen();
+  pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
+  pptx.author = 'CDS Monitoring';
+  pptx.subject = 'Trend Weekly Availability Area 1';
+  pptx.title = 'Trend Weekly Availability Area 1';
+  pptx.theme = { headFontFace: FONT, bodyFontFace: FONT, lang: 'id-ID' };
+  const specs = addAvailabilitySlide(pptx, { rows, logoData, weekFrom, weekTo });
   const buffer = await pptx.write({ outputType: 'arraybuffer' });
   return postProcessCharts(buffer, specs);
 }

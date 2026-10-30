@@ -137,7 +137,7 @@ export default function Dashboard({
     };
   }, [trendLog, trendCriteria]);
 
-  const handleConfirmExport = async ({ excel, reportPpt, trendWeekly, availability, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, uploadDateFrom, uploadDateTo }) => {
+  const handleConfirmExport = async ({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, uploadDateFrom, uploadDateTo }) => {
     setExporting(true);
     setExportError('');
     try {
@@ -158,24 +158,19 @@ export default function Dashboard({
           fileName: `CDS_Monitoring_Report_Cell_Down_${reportKey}.pptx`,
         });
       }
-      if (trendWeekly) {
+      if (weeklyHuddle) {
+        // Weekly Huddle = 1 file, 2 slide: Slide 1 Trend Weekly Cell Down, Slide 2 Availability.
         const selectedWeeks = weeklyTrendRows.filter((row) => row.key >= weekFrom && row.key <= weekTo);
         if (!selectedWeeks.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
         const anomalyCriteria = { ...trendCriteria, regionalFilter: ALL_KEY, category: 'CellDown' };
         const { rows: dailyNopRows } = buildFilteredDailyTrendByNop(trendLog, anomalyCriteria);
-        const { exportWeeklyTrendPpt } = await import('../lib/exportWeeklyTrendPpt.js');
-        await exportWeeklyTrendPpt({
-          rows: weeklyTrendRows,
-          dailyNopRows,
-          fromWeek: weekFrom,
-          toWeek: weekTo,
-          fileName: `CDS_Monitoring_Trend_Weekly_Cell_Down_Area_1_${selectedWeeks[0].label}_${selectedWeeks[selectedWeeks.length - 1].label}.pptx`,
-        });
-      }
-      if (availability) {
         const { getAvailability } = await import('../lib/dbApi.js');
-        const { exportAvailabilityPpt } = await import('../lib/exportAvailabilityPpt.js');
-        await exportAvailabilityPpt({ rows: await getAvailability(), weekFrom: Number(availabilityFrom), weekTo: Number(availabilityTo) });
+        const { exportWeeklyHuddlePpt } = await import('../lib/exportWeeklyHuddlePpt.js');
+        await exportWeeklyHuddlePpt({
+          trend: { rows: weeklyTrendRows, dailyNopRows, fromWeek: weekFrom, toWeek: weekTo },
+          availability: { rows: await getAvailability(), weekFrom: Number(availabilityFrom), weekTo: Number(availabilityTo) },
+          fileName: `CDS_Monitoring_Weekly_Huddle_${selectedWeeks[0].label}_${selectedWeeks[selectedWeeks.length - 1].label}.pptx`,
+        });
       }
       setShowExport(false);
     } catch (err) {
