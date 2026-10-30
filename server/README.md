@@ -85,10 +85,10 @@ di terminal lain (`npm run dev`), dan secara default sudah mengarah ke
 | Method     | Path                                                 | Keterangan                                                                                                              |
 | ---------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | GET        | `/api/active-tickets`                                | Semua ticket aktif                                                                                                      |
-| POST       | `/api/active-tickets/upsert`                         | Upsert banyak ticket sekaligus (mempertahankan RC/Detail/Action Plan yang sudah diisi petugas)                          |
+| POST       | `/api/active-tickets/upsert`                         | Upsert banyak ticket sekaligus (mempertahankan RC/Detail/Action Plan yang sudah diisi petugaas)                          |
 
 Body opsional `uploadDate` (`YYYY-MM-DD`, default hari ini WIB) dan `historicalOnly` (default `false`). Dengan
-`historicalOnly: true` (upload **tanggal pilihan** untuk hari yang terlewat; tangggal harus sebelum hari ini) data hanya
+`historicalOnly: true` (upload **tanggal pilihan** untuk hari yang terlewat; tanggal harus sebelum hari ini) data hanya
 ditulis ke `ticket_archive_history` + `daily_trend` tanggal itu; `active_tickets` & `ticket_archive` tidak disentuh, jadi
 Dashboard tetap kondisi terkini. Upload ulang di tanggal itu mengganti riwayat regional yang ada di file saja.
 
