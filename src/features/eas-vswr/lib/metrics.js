@@ -28,118 +28,147 @@ function vswrPriorityPct(closedP, openP) {
 }
 
 /**
- * Computes every number the app needs from the two parsed pivot tables:
- * overall EAS/VSWR percentages, per-regional EAS percentage, a per-NOP
- * "overall score" used for day-over-day history comparisons, and a full
- * `table` structure (regional -> NOP breakdown incl. VSWR P1-P5) used to
- * render the colored progress table / Excel export.
+ * Menghitung semua angka yang dibutuhkan app dari laporan EAS (Extended / Quickwin, lihat
+ * easReport.js) dan pivot VSWR. KEDUANYA OPSIONAL: EAS (File EAS + Upload Data Streamlit)
+ * dan VSWR boleh diupload terpisah, jadi bagian yang belum ada bernilai null.
+ *
+ * Persentase EAS = Done / Total site (Ach% pada tabel Report Daily EAS).
  */
-export function computeMetrics({ eas, vswr }) {
-  const g = eas.grandTotal
-  const pctExtended = pct(g.extClose, g.extTotal)
-  const pctQuickwin = pct(g.qwClose, g.qwTotal)
-  const pctEASOverall = pct(g.extClose + g.qwClose, g.extTotal + g.qwTotal)
+export function computeMetrics({ easReport = null, vswr = null }) {
+  const hasEas = Boolean(easReport)
+  const hasVswr = Boolean(vswr)
+  const ext = easReport?.extended
+  const qw = easReport?.quickwin
 
-  const vg = vswr.grandTotal
-  const pctVSWR = pct(vg.closedTotal, vg.total)
+  const pctExtended = hasEas ? ext.area.donePct ?? 0 : null
+  const pctQuickwin = hasEas ? qw.area.donePct ?? 0 : null
+  const pctEASOverall = hasEas
+    ? pct(ext.area.done + qw.area.done, ext.area.total + qw.area.total)
+    : null
+  const vg = vswr?.grandTotal
+  const pctVSWR = hasVswr ? pct(vg.closedTotal, vg.total) : null
 
-  const regionalRows = eas.regionalTotals.map((r) => {
-    const closed = r.extClose + r.qwClose
-    const total = r.extTotal + r.qwTotal
-    return { regional: r.regional, value: pct(closed, total) }
-  })
-
-  // ---- per-NOP "overall score" (avg of quickwin/extended/vswr), used by
-  // the history/analytics day-over-day comparison ----
-  const nopScores = {}
-
-  for (const r of eas.nopRows) {
-    const key = cleanNopLabel(r.nop)
-    const quickwinPct = pct(r.qwClose, r.qwTotal)
-    const extendedPct = pct(r.extClose, r.extTotal)
-    nopScores[key] = { ...(nopScores[key] || {}), label: key, quickwinPct, extendedPct }
-  }
-  for (const r of vswr.nopRows) {
-    const key = cleanNopLabel(r.nop)
-    const vswrPct = pct(r.closedTotal, r.total)
-    nopScores[key] = { ...(nopScores[key] || {}), label: key, vswrPct }
-  }
-  for (const key of Object.keys(nopScores)) {
-    const s = nopScores[key]
-    const parts = [s.quickwinPct, s.extendedPct, s.vswrPct].filter((v) =>
-      Number.isFinite(v)
-    )
-    s.overallScore = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : 0
-  }
-
-  // ---- full colored-table structure (Regional > NOP, EAS + VSWR P1-P5) ----
+  // Peta VSWR per NOP & per regional (kunci: nama NOP rapi / nama regional kapital).
   const vswrByNop = {}
-  for (const r of vswr.nopRows) {
-    vswrByNop[cleanNopLabel(r.nop)] = r
+  const vswrNopsByRegional = {}
+  for (const r of vswr?.nopRows || []) {
+    const label = cleanNopLabel(r.nop)
+    vswrByNop[label] = r
+    const reg = normalizeRegional(r.regional)
+    ;(vswrNopsByRegional[reg] ||= []).push(label)
   }
   const vswrRegionalByKey = {}
-  for (const r of vswr.regionalTotals) {
+  for (const r of vswr?.regionalTotals || []) {
     vswrRegionalByKey[normalizeRegional(r.regional)] = r
   }
 
+  // Regional = gabungan yang ada di EAS dan/atau VSWR.
+  const regionalKeys = [
+    ...new Set([
+      ...(ext?.regionals || []).map((r) => r.regional),
+      ...(qw?.regionals || []).map((r) => r.regional),
+      ...Object.keys(vswrNopsByRegional),
+      ...Object.keys(vswrRegionalByKey),
+    ]),
+  ]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+
+  const findReg = (rep, name) => rep?.regionals.find((r) => r.regional === name)
+  const findNop = (reg, label) => reg?.nops.find((n) => cleanNopLabel(n.label) === label)
+  const nopLabelsOf = (name) => {
+    const e = findReg(ext, name)
+    const q = findReg(qw, name)
+    return [
+      ...new Set([
+        ...(e?.nops || []).map((n) => cleanNopLabel(n.label)),
+        ...(q?.nops || []).map((n) => cleanNopLabel(n.label)),
+        ...(vswrNopsByRegional[name] || []),
+      ]),
+    ].sort((a, b) => a.localeCompare(b))
+  }
+
+  const regionalRows = hasEas
+    ? regionalKeys.map((name) => {
+        const e = findReg(ext, name)
+        const q = findReg(qw, name)
+        const done = (e?.done || 0) + (q?.done || 0)
+        const total = (e?.total || 0) + (q?.total || 0)
+        return { regional: name, value: pct(done, total) }
+      })
+    : []
+
+  // ---- skor per NOP (rata-rata quickwin/extended/vswr yang ada) ----
+  const nopScores = {}
+  for (const name of regionalKeys) {
+    const e = findReg(ext, name)
+    const q = findReg(qw, name)
+    for (const label of nopLabelsOf(name)) {
+      const s = { label }
+      if (hasEas) {
+        s.quickwinPct = findNop(q, label)?.donePct ?? 0
+        s.extendedPct = findNop(e, label)?.donePct ?? 0
+      }
+      const vr = vswrByNop[label]
+      if (vr) s.vswrPct = pct(vr.closedTotal, vr.total)
+      const parts = [s.quickwinPct, s.extendedPct, s.vswrPct].filter((v) => Number.isFinite(v))
+      s.overallScore = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : 0
+      nopScores[label] = s
+    }
+  }
+
+  // ---- struktur tabel penuh (Regional > NOP, EAS + VSWR P1-P5) ----
+  const NO_VSWR = [null, null, null, null, null]
   const table = {
-    regionals: eas.regionalTotals.map((reg) => {
-      const quickwinPct = pct(reg.qwClose, reg.qwTotal)
-      const extendedPct = pct(reg.extClose, reg.extTotal)
-      const easTotalPct = pct(reg.extClose + reg.qwClose, reg.extTotal + reg.qwTotal)
-      const vswrReg = vswrRegionalByKey[normalizeRegional(reg.regional)]
-      const vswrP = vswrReg ? vswrPriorityPct(vswrReg.closedP, vswrReg.openP) : [0, 0, 0, 0, 0]
-      const vswrTotalPct = vswrReg ? pct(vswrReg.closedTotal, vswrReg.total) : 0
-
-      const nops = eas.nopRows
-        .filter((r) => r.regional.toUpperCase() === reg.regional.toUpperCase())
-        .map((r) => {
-          const label = cleanNopLabel(r.nop)
-          const nopQuickwinPct = pct(r.qwClose, r.qwTotal)
-          const nopExtendedPct = pct(r.extClose, r.extTotal)
-          const nopEasTotalPct = pct(r.extClose + r.qwClose, r.extTotal + r.qwTotal)
-          const vswrRow = vswrByNop[label]
-          const nopVswrP = vswrRow
-            ? vswrPriorityPct(vswrRow.closedP, vswrRow.openP)
-            : [null, null, null, null, null]
-          const nopVswrTotalPct = vswrRow ? pct(vswrRow.closedTotal, vswrRow.total) : null
-
+    regionals: regionalKeys.map((name) => {
+      const e = findReg(ext, name)
+      const q = findReg(qw, name)
+      const vswrReg = vswrRegionalByKey[name]
+      return {
+        regional: name,
+        quickwinPct: hasEas ? q?.donePct ?? 0 : null,
+        extendedPct: hasEas ? e?.donePct ?? 0 : null,
+        easTotalPct: hasEas
+          ? pct((e?.done || 0) + (q?.done || 0), (e?.total || 0) + (q?.total || 0))
+          : null,
+        vswrP: vswrReg ? vswrPriorityPct(vswrReg.closedP, vswrReg.openP) : NO_VSWR,
+        vswrTotalPct: vswrReg ? pct(vswrReg.closedTotal, vswrReg.total) : null,
+        nops: nopLabelsOf(name).map((label) => {
+          const en = findNop(e, label)
+          const qn = findNop(q, label)
+          const vr = vswrByNop[label]
           return {
             label,
-            quickwinPct: nopQuickwinPct,
-            extendedPct: nopExtendedPct,
-            easTotalPct: nopEasTotalPct,
-            vswrP: nopVswrP,
-            vswrTotalPct: nopVswrTotalPct,
+            quickwinPct: hasEas ? qn?.donePct ?? 0 : null,
+            extendedPct: hasEas ? en?.donePct ?? 0 : null,
+            easTotalPct: hasEas
+              ? pct((en?.done || 0) + (qn?.done || 0), (en?.total || 0) + (qn?.total || 0))
+              : null,
+            vswrP: vr ? vswrPriorityPct(vr.closedP, vr.openP) : NO_VSWR,
+            vswrTotalPct: vr ? pct(vr.closedTotal, vr.total) : null,
           }
-        })
-
-      return {
-        regional: reg.regional,
-        quickwinPct,
-        extendedPct,
-        easTotalPct,
-        vswrP,
-        vswrTotalPct,
-        nops,
+        }),
       }
     }),
     grandTotal: {
       quickwinPct: pctQuickwin,
       extendedPct: pctExtended,
       easTotalPct: pctEASOverall,
-      vswrP: vswrPriorityPct(vg.closedP, vg.openP),
+      vswrP: hasVswr ? vswrPriorityPct(vg.closedP, vg.openP) : NO_VSWR,
       vswrTotalPct: pctVSWR,
     },
   }
 
   return {
+    hasEas,
+    hasVswr,
     pctEASOverall,
     pctQuickwin,
     pctExtended,
     pctVSWR,
     regionalRows,
     nopScores,
+    easReport,
     table: { ...table, columnRanges: computeColumnRanges(table) },
   }
 }

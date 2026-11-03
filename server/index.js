@@ -1016,7 +1016,7 @@ app.post('/api/daily-trend', async (req, res) => {
 
 // ---------- EAS & VSWR Tracking (riwayat summary per tanggal) ----------
 // 1 baris per tanggal update. Kolom `data` menyimpan satu record lengkap hasil generate
-// (metrics, summaryText, raw EAS/VSWR, generatedAt), persis yang dipakai frontend untuk
+// (metrics + tabel EAS, ringkasan VSWR, raw VSWR, generatedAt), persis yang dipakai frontend untuk
 // menampilkan summary, tabel progress, analytics perbandingan antar tanggal, dan export.
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -1041,7 +1041,7 @@ app.put('/api/eas-vswr/history/:dateISO', async (req, res) => {
     return res.status(400).json({ error: 'Format tanggal harus YYYY-MM-DD.' });
   }
   const record = req.body;
-  if (!record || typeof record !== 'object' || !record.metrics || !record.summaryText) {
+  if (!record || typeof record !== 'object' || !record.metrics || (!record.metrics.hasEas && !record.metrics.hasVswr && !record.summaryText)) {
     return res.status(400).json({ error: 'Data summary EAS & VSWR tidak valid.' });
   }
   try {

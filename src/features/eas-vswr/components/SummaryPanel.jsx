@@ -1,29 +1,20 @@
 import { useCallback, useMemo, useState } from 'react'
-import { buildSummaryText, SUMMARY_FOCUS } from '../lib/buildSummary.js'
-
-const FOCUS_OPTIONS = [
-  { key: SUMMARY_FOCUS.QUICKWIN, label: 'Quickwin' },
-  { key: SUMMARY_FOCUS.EXTENDED, label: 'Extended' },
-]
+import { buildSummaryText } from '../lib/buildSummary.js'
 
 export default function SummaryPanel({ record, placeholder }) {
   const [copied, setCopied] = useState(false)
-  const [focus, setFocus] = useState(SUMMARY_FOCUS.QUICKWIN)
 
   const dateLabel = record?.dateLabel
 
-  // Quickwin = format yang sudah tersimpan (tidak berubah). Extended dibangun
-  // ulang dari metrics, jadi record lama pun langsung punya versi Extended.
+  // Ringkasan khusus VSWR, dibangun dari metrics supaya record lama pun ikut berformat baru.
+  // Kosong kalau data VSWR untuk tanggal ini belum diupload.
   const summary = useMemo(() => {
-    if (!record) return ''
-    if (focus === SUMMARY_FOCUS.QUICKWIN && record.summaryText) return record.summaryText
-    if (!record.metrics) return record.summaryText || ''
+    if (!record?.metrics) return ''
     return buildSummaryText(record.metrics, {
       dateLabel: record.dateLabel,
       areaLabel: record.areaLabel,
-      focus,
     })
-  }, [record, focus])
+  }, [record])
 
   const handleCopy = useCallback(async () => {
     if (!summary) return
@@ -38,23 +29,10 @@ export default function SummaryPanel({ record, placeholder }) {
     <section className="panel">
       <div className="panel__header-row">
         <h2 className="panel__title">
-          Ringkasan{dateLabel ? ` — ${dateLabel}` : ''}
+          Ringkasan VSWR{dateLabel ? ` — ${dateLabel}` : ''}
         </h2>
         {summary && (
           <div className="summary-actions">
-            <div className="seg" role="group" aria-label="Fokus ringkasan">
-              {FOCUS_OPTIONS.map((o) => (
-                <button
-                  key={o.key}
-                  type="button"
-                  className={`seg__btn ${focus === o.key ? 'seg__btn--active' : ''}`}
-                  aria-pressed={focus === o.key}
-                  onClick={() => setFocus(o.key)}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
             <button className="btn btn--ghost btn--sm" onClick={handleCopy}>
               {copied ? 'Tersalin ✓' : 'Copy teks'}
             </button>
@@ -65,7 +43,9 @@ export default function SummaryPanel({ record, placeholder }) {
       {!summary && (
         <div className="placeholder">
           {placeholder ||
-            'Belum ada data untuk tanggal ini. Upload file EAS & VSWR lalu klik Generate Summary.'}
+            (record
+              ? 'Data VSWR untuk tanggal ini belum diupload. Upload File VSWR lalu klik Upload Data.'
+              : 'Belum ada data untuk tanggal ini. Upload File VSWR lalu klik Upload Data.')}
         </div>
       )}
 

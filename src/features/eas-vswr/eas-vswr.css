@@ -34,7 +34,7 @@
 }
 
 .eas-vswr .page {
-  max-width: 1180px;
+  max-width: 1480px;
   margin: 0 auto;
   padding: 0 0 32px;
 }
@@ -1000,3 +1000,142 @@
   text-decoration: underline;
 }
   
+
+/* ---------- Tabel EAS Extended / Quickwin (Report Daily EAS) ---------- */
+
+/* Halaman EAS & VSWR: 3 dropzone sejajar dalam satu baris (PM Tracking tetap 2 kolom). */
+.eas-vswr .dropzones.dropzones--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 10px;
+}
+
+@media (max-width: 620px) {
+  .eas-vswr .dropzones.dropzones--three {
+    grid-template-columns: 1fr;
+  }
+}
+
+.eas-vswr .upload-hint {
+  margin: 0 0 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.eas-vswr .upload-hint--warn {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.eas-vswr .field-hint {
+  align-self: end;
+  margin: 0;
+  padding-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.eas-vswr .panel__header-row > div > .panel__title {
+  margin-bottom: 4px;
+}
+
+.eas-vswr .panel__subtitle {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.eas-vswr .ptable--eas {
+  min-width: 980px;
+  font-size: 12px;
+}
+
+.eas-vswr .ptable--eas thead th {
+  padding: 8px 4px;
+}
+
+.eas-vswr .ptable--eas tbody td {
+  padding: 6px 4px;
+}
+
+.eas-vswr .ptable--eas tbody td.ptable__nop {
+  padding-left: 8px;
+}
+
+.eas-vswr .ptable--eas .ptable__barcell {
+  padding: 4px !important;
+}
+
+.eas-vswr .ptable--eas .ptable__barcell-track {
+  min-width: 62px;
+}
+
+/* Header: biru navy untuk Baseline & Ach Total, oranye untuk Target / Ach Validasi (seperti template Excel) */
+.eas-vswr .ptable--eas thead th {
+  background: #002060;
+  border-color: #1b3b7a;
+}
+
+.eas-vswr .ptable--eas thead th.th--ach {
+  background: #ae5524;
+  border-color: #c4723f;
+}
+
+.eas-vswr .ptable__num {
+  color: #17202E;
+  font-variant-numeric: tabular-nums;
+}
+
+.eas-vswr .ptable__num--zero {
+  color: #A6AEBB;
+}
+
+.eas-vswr .ptable__num--strong {
+  font-weight: 700;
+}
+
+.eas-vswr .ptable__daily--ok {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.eas-vswr .ptable__sisa--neg {
+  color: var(--red);
+}
+
+.eas-vswr .ptable--eas .ptable__regional-total td.ptable__num,
+.eas-vswr .ptable--eas .ptable__grand td.ptable__num {
+  color: #fff;
+}
+
+.eas-vswr .ptable--eas .ptable__regional-total td.ptable__num--zero,
+.eas-vswr .ptable--eas .ptable__grand td.ptable__num--zero {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.eas-vswr .ptable--eas .ptable__regional-total td.ptable__daily--ok,
+.eas-vswr .ptable--eas .ptable__grand td.ptable__daily--ok {
+  color: #7BE0A3;
+  background: transparent;
+}
+
+.eas-vswr .ptable--eas .ptable__regional-total td.ptable__sisa--neg,
+.eas-vswr .ptable--eas .ptable__grand td.ptable__sisa--neg {
+  color: #FF9B9B;
+}
+
+.eas-vswr .eas-note {
+  margin: 0 4px 20px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.eas-vswr .eas-note--warn {
+  color: #9A5B00;
+  background: #FFF6E5;
+  border: 1px solid #F3D9A4;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 0 0 20px;
+}

@@ -31,34 +31,24 @@ function topBottom(entries, key) {
   return { topLines, bottomLines }
 }
 
-export const SUMMARY_FOCUS = {
-  QUICKWIN: 'quickwin',
-  EXTENDED: 'extended',
+/** Record lama (sebelum EAS & VSWR bisa diupload terpisah) tidak punya metrics.hasVswr. */
+export function hasVswrData(metrics) {
+  if (!metrics) return false
+  return metrics.hasVswr ?? Number.isFinite(metrics.pctVSWR)
 }
 
 /**
- * focus = 'quickwin' (default, format lama) atau 'extended'.
- * - quickwin: Per Regional memakai % EAS total, blok pertama = QUICKWIN.
- * - extended: Per Regional memakai % Extended, blok pertama = EXTENDED,
- *   dan baris Overall menampilkan Extended lebih dulu.
+ * Teks ringkasan khusus VSWR Tracking (EAS tidak ikut diringkas, datanya ada di tabel).
+ * Mengembalikan '' kalau data VSWR untuk tanggal tersebut belum ada.
  */
-export function buildSummaryText(
-  metrics,
-  { dateLabel, areaLabel, focus = SUMMARY_FOCUS.QUICKWIN }
-) {
-  const { pctEASOverall, pctQuickwin, pctExtended, pctVSWR, regionalRows, nopScores } =
-    metrics
-  const isExtended = focus === SUMMARY_FOCUS.EXTENDED
+export function buildSummaryText(metrics, { dateLabel, areaLabel }) {
+  if (!hasVswrData(metrics)) return ''
 
-  // Extended: ambil % Extended per regional dari table (record lama tanpa
-  // table akan jatuh kembali ke % EAS total).
-  const tableRegionals = metrics.table?.regionals
-  const regionalSource =
-    isExtended && tableRegionals?.length
-      ? tableRegionals.map((r) => ({ regional: r.regional, value: r.extendedPct }))
-      : regionalRows
+  const regionalSorted = (metrics.table?.regionals || [])
+    .filter((r) => Number.isFinite(r.vswrTotalPct))
+    .map((r) => ({ regional: r.regional, value: r.vswrTotalPct }))
+    .sort((a, b) => b.value - a.value)
 
-  const regionalSorted = [...regionalSource].sort((a, b) => b.value - a.value)
   const regionalLines = regionalSorted.map((r, i) => {
     let dot = '🔵'
     let suffix = ''
@@ -72,38 +62,18 @@ export function buildSummaryText(
     return `${dot} ${r.regional}: ${fmt(r.value)}%${suffix}`
   })
 
-  const nopList = Object.values(nopScores)
-  const focusKey = isExtended ? 'extendedPct' : 'quickwinPct'
-  const focusBlock = topBottom(nopList, focusKey)
-  const vs = topBottom(nopList, 'vswrPct')
+  const vs = topBottom(Object.values(metrics.nopScores || {}), 'vswrPct')
 
   const lines = []
-  lines.push(`📊 Progress Validasi EAS & VSWR Tracking – ${areaLabel}`)
+  lines.push(`📊 Progress VSWR Tracking – ${areaLabel}`)
   lines.push(`Update: ${dateLabel}`)
   lines.push('')
   lines.push('Overall:')
-  lines.push(`✅ Validasi EAS: ${fmt(pctEASOverall)}% closed`)
-  if (isExtended) {
-    lines.push(`* Extended: ${fmt(pctExtended)}%`)
-    lines.push(`* Quickwin: ${fmt(pctQuickwin)}%`)
-  } else {
-    lines.push(`* Quickwin: ${fmt(pctQuickwin)}%`)
-    lines.push(`* Extended: ${fmt(pctExtended)}%`)
-  }
-  lines.push(`✅ VSWR Tracking: ${fmt(pctVSWR)}% closed`)
+  lines.push(`✅ VSWR Tracking: ${fmt(metrics.pctVSWR)}% closed`)
   lines.push('')
-  lines.push(
-    isExtended ? 'Per Regional (Validasi EAS – Extended):' : 'Per Regional (Validasi EAS):'
-  )
+  lines.push('Per Regional (VSWR Tracking):')
   lines.push(...regionalLines)
   lines.push(DIVIDER)
-  lines.push(isExtended ? '1️⃣ EXTENDED' : '1️⃣ QUICKWIN')
-  lines.push('🟢 Top 3 Tertinggi:')
-  lines.push(...focusBlock.topLines)
-  lines.push('🔴 Top 3 Terendah:')
-  lines.push(...focusBlock.bottomLines)
-  lines.push(DIVIDER)
-  lines.push('2️⃣ VSWR TRACKING (% Closed)')
   lines.push('🟢 Top 3 Tertinggi:')
   lines.push(...vs.topLines)
   lines.push('🔴 Top 3 Terendah:')

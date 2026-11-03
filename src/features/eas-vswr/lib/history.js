@@ -69,3 +69,10 @@ export function getPreviousRecord(list, dateISO) {
   const before = list.filter((r) => r.dateISO < dateISO)
   return before.length ? before[before.length - 1] : null
 }
+
+// Record EAS terakhir SEBELUM dateISO yang menyimpan daftar site baseline (easSites).
+// Dipakai untuk Ach Validasi: dari baseline inilah prioritas awal site yang berubah ke Done diketahui.
+export function getPreviousEasRecord(list, dateISO) {
+  const before = list.filter((r) => r.dateISO < dateISO && r.easSites)
+  return before.length ? before[before.length - 1] : null
+}

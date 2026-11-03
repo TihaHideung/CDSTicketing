@@ -46,26 +46,39 @@ export function DropZone({ label, hint, file, onFile, accent }) {
 export default function UploadPanel({
   easFile,
   vswrFile,
+  detailFile,
   onEasFile,
   onVswrFile,
+  onDetailFile,
   dateISO,
   onDateChange,
-  onGenerate,
+  revisiDateLabel, // Date Revisi otomatis = tanggal upload - 1 hari (H-1)
+  onUpload,
   loading,
   error,
 }) {
-  const canGenerate = easFile && vswrFile && !loading
+  // File EAS dan Upload Data Streamlit satu paket (harus bareng). VSWR berdiri sendiri.
+  const easPairIncomplete = Boolean(easFile) !== Boolean(detailFile)
+  const hasEasPair = Boolean(easFile && detailFile)
+  const canUpload = !loading && !easPairIncomplete && (hasEasPair || Boolean(vswrFile))
 
   return (
     <section className="panel">
       <h2 className="panel__title">Upload Data</h2>
 
-      <div className="dropzones">
+      <div className="dropzones dropzones--three">
         <DropZone
           label="File EAS"
-          hint="Sheet A1 — tabel Quickwin / Extended"
+          hint="Manual Validation (Site_List) → Baseline"
           file={easFile}
           onFile={onEasFile}
+          accent="#2952A3"
+        />
+        <DropZone
+          label="Upload Data Streamlit"
+          hint="EAS_Detail_Site_All → Ach Validasi"
+          file={detailFile}
+          onFile={onDetailFile}
           accent="#2952A3"
         />
         <DropZone
@@ -77,19 +90,24 @@ export default function UploadPanel({
         />
       </div>
 
+      <p className={`upload-hint ${easPairIncomplete ? 'upload-hint--warn' : ''}`}>
+        {easPairIncomplete
+          ? 'File EAS dan Upload Data Streamlit harus diupload bersamaan.'
+          : 'File EAS menyimpan Baseline, Upload Data Streamlit mengisi Ach Validasi. Keduanya diupload bersamaan; File VSWR boleh terpisah.'}
+      </p>
+
       <div className="fields">
         <label className="field">
-          <span>Tanggal update</span>
-          <input
-            type="date"
-            value={dateISO}
-            onChange={(e) => onDateChange(e.target.value)}
-          />
+          <span>Tanggal upload</span>
+          <input type="date" value={dateISO} onChange={(e) => onDateChange(e.target.value)} />
         </label>
+        <p className="field-hint">
+          Ach Validasi diambil dari Date Revisi <strong>{revisiDateLabel}</strong> (otomatis H-1).
+        </p>
       </div>
 
-      <button className="btn btn--primary btn--full" disabled={!canGenerate} onClick={onGenerate}>
-        {loading ? 'Memproses…' : 'Generate Summary'}
+      <button className="btn btn--primary btn--full" disabled={!canUpload} onClick={onUpload}>
+        {loading ? 'Memproses… (file besar, bisa 10-30 detik)' : 'Upload Data'}
       </button>
 
       {error && <div className="error">{error}</div>}

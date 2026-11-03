@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import { relativeHeatColorHexARGB } from './colorScale.js'
 import { timestampToWIB } from './format.js'
+import { BUCKETS, BUCKET_LABELS, CATEGORIES } from './easReport.js'
 
 const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF12203D' } }
 const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A6E' } }
@@ -185,7 +186,8 @@ function buildSummarySheet(wb, record) {
   for (let c = 3; c <= 11; c++) ws.getColumn(c).width = 12
 }
 
-function buildEasRawSheet(wb, record) {
+// Hanya untuk record lama (sebelum format Report Daily EAS) yang masih punya raw.eas.nopRows.
+function buildLegacyEasRawSheet(wb, record) {
   const ws = wb.addWorksheet('EAS - Link NOIM')
   const headers = [
     'Regional',
@@ -232,6 +234,103 @@ function buildEasRawSheet(wb, record) {
   ]).font = { bold: true }
 
   ws.columns.forEach((col) => (col.width = 20))
+}
+
+const ACH_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFAE5524' } }
+const BASE_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF002060' } }
+
+// Sheet "Report Extended" / "Report Quickwin": susunan kolom sama dengan template Report Daily EAS.
+function buildEasReportSheet(wb, record, cat) {
+  const report = record.metrics.easReport?.[cat.key]
+  if (!report) return
+  const ws = wb.addWorksheet(`Report ${cat.label}`)
+  const info = record.easInfo
+
+  ws.getCell(1, 1).value = `Daily Report Pencapaian Validasi EAS ${cat.label} ${record.dateISO.split('-').reverse().join('-')}`
+  ws.getCell(1, 1).font = { bold: true, size: 13 }
+  const dmy = (iso) => (iso ? iso.split('-').reverse().join('-') : '')
+  ws.getCell(2, 1).value =
+    info && 'matched' in info
+      ? info.baselineFromDateISO
+        ? `Ach Validasi: ${info.matched} site Date Revisi ${dmy(info.revisiDateISO)} (Done di Streamlit), prioritas awal dari baseline ${dmy(info.baselineFromDateISO)} | Baseline: Prio Actual File EAS`
+        : 'Belum ada baseline sebelumnya, Ach Validasi masih kosong | Baseline: Prio Actual File EAS'
+      : ''
+  ws.getCell(2, 1).font = { italic: true, color: { argb: 'FF6B7686' } }
+
+  const H = 4 // baris header
+  const bucketHeads = BUCKETS.map((k) => BUCKET_LABELS[k])
+  ws.getRow(H).values = [
+    'Regional', 'NOP', 'Site Belum Validasi (Baseline)', '', '', '', '', 'Target D-1',
+    'Ach Validasi Daily', '', '', '', '', '% Daily Ach', 'Ach Total', '', '', '',
+  ]
+  ws.getRow(H + 1).values = [
+    '', '', ...bucketHeads, 'Total', '', ...bucketHeads, 'Total', '', 'Baseline', 'Done', 'Ach%', 'Sisa Target',
+  ]
+  ws.mergeCells(H, 1, H + 1, 1)
+  ws.mergeCells(H, 2, H + 1, 2)
+  ws.mergeCells(H, 3, H, 7)
+  ws.mergeCells(H, 8, H + 1, 8)
+  ws.mergeCells(H, 9, H, 13)
+  ws.mergeCells(H, 14, H + 1, 14)
+  ws.mergeCells(H, 15, H, 18)
+  const achCols = new Set([8, 9, 10, 11, 12, 13, 14])
+  for (let r = H; r <= H + 1; r++) {
+    for (let c = 1; c <= 18; c++) {
+      const cell = ws.getCell(r, c)
+      cell.fill = achCols.has(c) ? ACH_FILL : BASE_FILL
+      cell.font = WHITE_BOLD
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+      cell.border = THIN_BORDER
+    }
+  }
+
+  const writeRow = (rowIdx, regionalLabel, nopLabel, row, band) => {
+    const r = ws.getRow(rowIdx)
+    r.getCell(1).value = regionalLabel
+    r.getCell(2).value = nopLabel
+    const nums = [
+      ...BUCKETS.map((k) => row.baseline[k]), row.baseline.total, row.target,
+      ...BUCKETS.map((k) => row.ach[k]), row.ach.total,
+    ]
+    nums.forEach((v, i) => {
+      r.getCell(3 + i).value = v
+      r.getCell(3 + i).numFmt = '#,##0'
+    })
+    r.getCell(14).value = row.dailyAchPct == null ? '-' : row.dailyAchPct / 100
+    if (row.dailyAchPct != null) r.getCell(14).numFmt = '0.00%'
+    r.getCell(15).value = row.total
+    r.getCell(16).value = row.done
+    r.getCell(17).value = row.donePct == null ? '-' : row.donePct / 100
+    if (row.donePct != null) r.getCell(17).numFmt = '0.00%'
+    r.getCell(18).value = row.sisa
+    for (const c of [15, 16, 18]) r.getCell(c).numFmt = '#,##0'
+    for (let c = 1; c <= 18; c++) {
+      const cell = r.getCell(c)
+      cell.border = THIN_BORDER
+      if (c > 2) cell.alignment = { horizontal: 'center' }
+      if (band) {
+        cell.fill = band
+        cell.font = WHITE_BOLD
+      }
+    }
+  }
+
+  let rowIdx = H + 2
+  for (const reg of report.regionals) {
+    writeRow(rowIdx, `Total ${reg.regional}`, '', reg, TOTAL_FILL)
+    rowIdx++
+    for (const nop of reg.nops) {
+      writeRow(rowIdx, reg.regional, nop.label, nop, null)
+      ws.getCell(rowIdx, 2).alignment = { horizontal: 'left' }
+      rowIdx++
+    }
+  }
+  writeRow(rowIdx, 'Area 1', '', report.area, HEADER_FILL)
+
+  ws.views = [{ state: 'frozen', ySplit: H + 1, xSplit: 2 }]
+  ws.getColumn(1).width = 20
+  ws.getColumn(2).width = 24
+  for (let c = 3; c <= 18; c++) ws.getColumn(c).width = 11
 }
 
 function buildVswrRawSheet(wb, record) {
@@ -302,8 +401,12 @@ export async function exportDailyReport(record) {
   wb.created = new Date()
 
   buildSummarySheet(wb, record)
-  buildEasRawSheet(wb, record)
-  buildVswrRawSheet(wb, record)
+  if (record.metrics?.easReport) {
+    for (const cat of CATEGORIES) buildEasReportSheet(wb, record, cat)
+  } else if (record.raw?.eas?.nopRows) {
+    buildLegacyEasRawSheet(wb, record)
+  }
+  if (record.raw?.vswr) buildVswrRawSheet(wb, record)
 
   const buffer = await wb.xlsx.writeBuffer()
   const blob = new Blob([buffer], {
