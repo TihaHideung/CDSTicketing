@@ -142,6 +142,21 @@ export async function getAvailability() {
   return apiFetch('/api/availability');
 }
 
+// Kategori KPI bulanan per NOP: [{ kpiType: 'SON_L1' | 'SOMSA_L0', period: 202601, regional: 'R01', nop, category }].
+// saveKpi menimpa (kpiType, period, nop) yang sama karena nilai bulan lalu bisa direvisi.
+export async function saveKpi(rows) {
+  return apiFetch('/api/kpi/replace', { method: 'POST', body: JSON.stringify({ rows }) });
+}
+
+export async function getKpi() {
+  return apiFetch('/api/kpi');
+}
+
+// Pasangan NOP -> Regional yang unik dari Master Site (dipakai untuk menentukan regional baris KPI).
+export async function getSiteMasterNops() {
+  return apiFetch('/api/site-master/nops');
+}
+
 export function todayKey(date = new Date()) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');

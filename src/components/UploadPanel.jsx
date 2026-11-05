@@ -84,6 +84,13 @@ export default function UploadPanel({
   availSummary,
   availMessage,
   availError,
+  kpiFile,
+  onKpiFileChange,
+  onUploadKpi,
+  kpiUploading,
+  kpiSummary,
+  kpiMessage,
+  kpiError,
 }) {
   const readyCount = [mergeFile].filter(Boolean).length;
 
@@ -275,6 +282,38 @@ export default function UploadPanel({
         )}
         {availMessage && (
           <div className="mt-4 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md px-4 py-3">{availMessage}</div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <h2 className="font-semibold text-slate-800 mb-1">KPI (Profiling KPI)</h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Upload satu file KPI List Export (semua regional). NOP dicocokkan dengan Master Site dan hanya R01, R02, R10 yang dipakai.
+          Kategori diambil dari kolom SON L1 Score Kategori dan SOMSA L0 Score Kategori, bulan dari kolom Period.
+          Upload ulang akan memperbarui bulan yang sama.
+        </p>
+        <div className="mb-4 max-w-md">
+          <FileSlot label="KPI List Export (Excel)" hint="KPI_List_Export_Data_...xlsx" file={kpiFile} onChange={onKpiFileChange} />
+        </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <button
+            disabled={!kpiFile || kpiUploading}
+            onClick={onUploadKpi}
+            className="px-4 py-2 rounded-md bg-navy-900 text-white text-sm font-medium disabled:opacity-40"
+          >
+            {kpiUploading ? 'Menyimpan...' : 'Simpan ke Database'}
+          </button>
+          {kpiSummary && (
+            <span className="text-xs text-slate-500">
+              Tersimpan di database: {kpiSummary}
+            </span>
+          )}
+        </div>
+        {kpiError && (
+          <div className="mt-4 text-sm bg-red-50 text-red-700 border border-red-200 rounded-md px-4 py-3">{kpiError}</div>
+        )}
+        {kpiMessage && (
+          <div className="mt-4 text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md px-4 py-3">{kpiMessage}</div>
         )}
       </div>
 

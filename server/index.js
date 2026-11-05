@@ -281,6 +281,26 @@ CREATE TABLE IF NOT EXISTS availability_weekly (
   }
 
   try {
+    // Kategori KPI bulanan per NOP (SON L1 & SOMSA L0): 1 baris per (kpi_type, period, nop).
+    // Kategori dibaca langsung dari file KPI List Export; regional (R01/R02/R10) dari Master Site.
+    // Upload MENIMPA baris yang sama karena nilai bulan lalu bisa direvisi di file berikutnya.
+    await pool.query(`
+CREATE TABLE IF NOT EXISTS kpi_category (
+  kpi_type    VARCHAR(12) NOT NULL,
+  period      INT NOT NULL,
+  regional    VARCHAR(10) NOT NULL,
+  nop         VARCHAR(80) NOT NULL,
+  category    VARCHAR(20) NOT NULL,
+  uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (kpi_type, period, nop)
+) ENGINE=InnoDB`);
+    console.log('Migrasi: tabel `kpi_category` siap dipakai.');
+  } catch (err) {
+    console.error('Gagal membuat kpi_category:', err.message);
+  }
+
+  try {
     // NOIM disimpan per tanggal (snapshot_date) supaya bisa dibuat trend irisan INAP & NOIM.
     // Primary key = (snapshot_date, site_id): upload ulang di tanggal yang sama hanya
     // menggantikan data tanggal itu, tanggal lain tidak tersentuh.
@@ -1140,6 +1160,18 @@ app.get('/api/site-master/count', async (_req, res) => {
   res.json({ count: rows[0].c });
 });
 
+// Pasangan NOP -> Regional yang unik (untuk mencocokkan NOP di file KPI List Export ke regional-nya).
+app.get('/api/site-master/nops', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT DISTINCT nop, regional FROM site_master WHERE nop IS NOT NULL AND nop <> '' AND regional IS NOT NULL AND regional <> ''"
+    );
+    res.json(rows.map((r) => ({ nop: r.nop, regional: r.regional })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- NOIM (pembanding data Site Down INAP) ----------
 // Data NOIM disimpan per tanggal (snapshot_date). Upload di tanggal yang sama MENGGANTI
 // data tanggal itu saja; tanggal lain tetap tersimpan, jadi bisa dibuat trend per tanggal.
@@ -1230,6 +1262,70 @@ app.get('/api/availability', async (_req, res) => {
         availability: Number(r.availability),
         outageSec: r.outage_sec == null ? null : Number(r.outage_sec),
         denumSec: r.denum_sec == null ? null : Number(r.denum_sec),
+      }))
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const KPI_TYPES = new Set(['SON_L1', 'SOMSA_L0']);
+const KPI_CATEGORIES = new Set(['Kurang', 'Cukup', 'Baik', 'Baik Sekali', 'Istimewa']);
+const KPI_REGIONALS = new Set(['R01', 'R02', 'R10']);
+
+// Simpan kategori KPI bulanan. (kpi_type, period, nop) yang sudah ada DIPERBARUI (bukan dilewati)
+// supaya revisi nilai bulan lalu di file baru ikut masuk.
+app.post('/api/kpi/replace', async (req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'Tidak ada data KPI untuk disimpan.' });
+  }
+  const kept = rows.filter(
+    (r) =>
+      KPI_TYPES.has(r.kpiType) &&
+      /^\d{6}$/.test(String(r.period)) &&
+      KPI_REGIONALS.has(r.regional) &&
+      typeof r.nop === 'string' && r.nop.trim() &&
+      KPI_CATEGORIES.has(r.category)
+  );
+  if (kept.length === 0) {
+    return res.status(400).json({ error: 'Tidak ada baris valid (kpiType, period, regional R01/R02/R10, nop, category).' });
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const chunkSize = 300;
+    for (let i = 0; i < kept.length; i += chunkSize) {
+      const chunk = kept.slice(i, i + chunkSize);
+      const values = chunk.map((r) => [r.kpiType, Number(r.period), r.regional, r.nop.trim(), r.category]);
+      await conn.query(
+        `INSERT INTO kpi_category (kpi_type, period, regional, nop, category) VALUES ?
+         ON DUPLICATE KEY UPDATE regional = VALUES(regional), category = VALUES(category)`,
+        [values]
+      );
+    }
+    await conn.commit();
+    res.json({ saved: kept.length });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.get('/api/kpi', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT kpi_type, period, regional, nop, category FROM kpi_category ORDER BY kpi_type, period, regional, nop'
+    );
+    res.json(
+      rows.map((r) => ({
+        kpiType: r.kpi_type,
+        period: Number(r.period),
+        regional: r.regional,
+        nop: r.nop,
+        category: r.category,
       }))
     );
   } catch (err) {

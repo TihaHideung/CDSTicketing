@@ -24,7 +24,7 @@ function Check({ checked, onChange, disabled, children, className = '' }) {
  * `getReportWeeks()` mengembalikan daftar minggu yang punya data: [{ key, label }] (terbaru dulu).
  * Komponen ini di-mount hanya saat dibuka, jadi pilihan selalu mulai dari default.
  */
-export default function ExportModal({ onClose, onConfirm, exporting, error, getReportWeeks, getWeeklyTrendWeeks, availabilityWeeks = [], availabilityWeeksLoading = false, availabilityWeeksError = '' }) {
+export default function ExportModal({ onClose, onConfirm, exporting, error, getReportWeeks, getWeeklyTrendWeeks, availabilityWeeks = [], availabilityWeeksLoading = false, availabilityWeeksError = '', kpiMonths = [], kpiMonthsLoading = false, kpiMonthsError = '' }) {
   const [excel, setExcel] = useState(false);
   const [uploadDateFrom, setUploadDateFrom] = useState('');
   const [uploadDateTo, setUploadDateTo] = useState('');
@@ -35,6 +35,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const [weekToState, setWeekToState] = useState(null);
   const [availabilityFromState, setAvailabilityFromState] = useState(null);
   const [availabilityToState, setAvailabilityToState] = useState(null);
+  const [kpiMonthToState, setKpiMonthToState] = useState(null);
 
   const periodOptions = useMemo(() => (getReportWeeks ? getReportWeeks() : []), [getReportWeeks]);
   const weeklyOptions = useMemo(() => (getWeeklyTrendWeeks ? getWeeklyTrendWeeks() : []), [getWeeklyTrendWeeks]);
@@ -46,10 +47,12 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const weeklyReady = Boolean(weekFrom && weekTo && weekFrom <= weekTo);
   const availabilityFrom = availabilityWeeks.some((option) => option.key === availabilityFromState) ? availabilityFromState : availabilityWeeks[0]?.key || null;
   const availabilityTo = availabilityWeeks.some((option) => option.key === availabilityToState) ? availabilityToState : availabilityWeeks.at(-1)?.key || null;
+  const kpiMonthTo = kpiMonths.some((option) => option.key === kpiMonthToState) ? kpiMonthToState : kpiMonths.at(-1)?.key || null;
+  const kpiReady = Boolean(kpiMonthTo);
   const availabilityReady = Boolean(availabilityFrom && availabilityTo && Number(availabilityFrom) <= Number(availabilityTo));
 
   const uploadDateInvalid = excel && (!uploadDateFrom || !uploadDateTo || uploadDateFrom > uploadDateTo);
-  const huddleReady = weeklyReady && availabilityReady && !availabilityWeeksLoading;
+  const huddleReady = weeklyReady && availabilityReady && !availabilityWeeksLoading && kpiReady && !kpiMonthsLoading;
   const canExport = !exporting && !uploadDateInvalid && (excel || (reportPpt && reportReady) || (weeklyHuddle && huddleReady)) && !(reportPpt && !reportReady) && !(weeklyHuddle && !huddleReady);
 
   return (
@@ -150,12 +153,64 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               <span className="font-medium">Weekly Huddle (.pptx)</span>
             </Check>
             <p className="ml-6 mt-1 text-xs text-slate-400">
-              Satu file, dua slide: (1) Trend Weekly Cell Down Area 1 &amp; Regional dan (2) Trend Weekly Availability Area 1 &amp; Regional.
+              Satu file, tiga slide: (1) Profiling KPI SON L1 &amp; SOMSA L0, (2) Trend Weekly Availability Area 1 &amp; Regional, dan (3) Trend Weekly Cell Down Area 1 &amp; Regional.
             </p>
             {weeklyHuddle && (
               <div className="ml-6 mt-3 space-y-3 border-t border-slate-100 pt-3">
                 <div>
-                  <p className="mb-1 text-xs font-semibold text-slate-700">Slide 1 - Trend Weekly Cell Down</p>
+                  <p className="mb-1 text-xs font-semibold text-slate-700">Slide 1 - Profiling KPI</p>
+                  <label className="block text-xs font-medium text-slate-600 sm:max-w-[50%]">
+                    Sampai bulan
+                  <select
+                    value={kpiMonthTo || ''}
+                    onChange={(event) => setKpiMonthToState(event.target.value)}
+                    disabled={exporting || kpiMonthsLoading || !kpiMonths.length}
+                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
+                  >
+                    {kpiMonths.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                  </select>
+                  </label>
+                  {kpiMonthsLoading && <p className="mt-1 text-[11px] text-slate-500">Memuat data KPI...</p>}
+                  {!kpiMonthsLoading && kpiMonthsError && <p className="mt-1 text-[11px] text-red-500">{kpiMonthsError}</p>}
+                  {!kpiMonthsLoading && !kpiMonthsError && !kpiMonths.length && <p className="mt-1 text-[11px] text-red-500">Belum ada data KPI di database (Upload &gt; KPI).</p>}
+                  <p className="mt-1 text-[11px] text-slate-400">Bulan Januari sampai bulan terpilih; tidak mengikuti filter Dashboard.</p>
+                </div>
+
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-slate-700">Slide 2 - Trend Weekly Availability</p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="text-xs font-medium text-slate-600">
+                      Minggu awal
+                  <select
+                    value={availabilityFrom || ''}
+                    onChange={(event) => setAvailabilityFromState(event.target.value)}
+                    disabled={exporting || availabilityWeeksLoading || !availabilityWeeks.length}
+                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
+                  >
+                    {availabilityWeeks.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                  </select>
+                    </label>
+                    <label className="text-xs font-medium text-slate-600">
+                      Minggu akhir
+                  <select
+                    value={availabilityTo || ''}
+                    onChange={(event) => setAvailabilityToState(event.target.value)}
+                    disabled={exporting || availabilityWeeksLoading || !availabilityWeeks.length}
+                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
+                  >
+                    {availabilityWeeks.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                  </select>
+                    </label>
+                  </div>
+                  {availabilityWeeksLoading && <p className="mt-1 text-[11px] text-slate-500">Memuat minggu Availability...</p>}
+                  {!availabilityWeeksLoading && availabilityWeeksError && <p className="mt-1 text-[11px] text-red-500">{availabilityWeeksError}</p>}
+                  {!availabilityWeeksLoading && !availabilityWeeksError && !availabilityWeeks.length && <p className="mt-1 text-[11px] text-red-500">Belum ada data Availability lengkap untuk ketiga regional (Upload &gt; Availability).</p>}
+                  {availabilityWeeks.length > 0 && !availabilityReady && <p className="mt-1 text-[11px] text-red-500">Minggu awal tidak boleh melewati minggu akhir.</p>}
+                  <p className="mt-1 text-[11px] text-slate-400">Tidak mengikuti filter Dashboard.</p>
+                </div>
+
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-slate-700">Slide 3 - Trend Weekly Cell Down</p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="text-xs font-medium text-slate-600">
                       Minggu awal
@@ -188,39 +243,6 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
                   )}
                   <p className="mt-1 text-[11px] text-slate-400">Mengikuti filter Dashboard yang aktif.</p>
                 </div>
-
-                <div>
-                  <p className="mb-1 text-xs font-semibold text-slate-700">Slide 2 - Availability</p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <label className="text-xs font-medium text-slate-600">
-                      Minggu awal
-                  <select
-                    value={availabilityFrom || ''}
-                    onChange={(event) => setAvailabilityFromState(event.target.value)}
-                    disabled={exporting || availabilityWeeksLoading || !availabilityWeeks.length}
-                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
-                  >
-                    {availabilityWeeks.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
-                  </select>
-                    </label>
-                    <label className="text-xs font-medium text-slate-600">
-                      Minggu akhir
-                  <select
-                    value={availabilityTo || ''}
-                    onChange={(event) => setAvailabilityToState(event.target.value)}
-                    disabled={exporting || availabilityWeeksLoading || !availabilityWeeks.length}
-                    className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
-                  >
-                    {availabilityWeeks.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
-                  </select>
-                    </label>
-                  </div>
-                  {availabilityWeeksLoading && <p className="mt-1 text-[11px] text-slate-500">Memuat minggu Availability...</p>}
-                  {!availabilityWeeksLoading && availabilityWeeksError && <p className="mt-1 text-[11px] text-red-500">{availabilityWeeksError}</p>}
-                  {!availabilityWeeksLoading && !availabilityWeeksError && !availabilityWeeks.length && <p className="mt-1 text-[11px] text-red-500">Belum ada data Availability lengkap untuk ketiga regional (Upload &gt; Availability).</p>}
-                  {availabilityWeeks.length > 0 && !availabilityReady && <p className="mt-1 text-[11px] text-red-500">Minggu awal tidak boleh melewati minggu akhir.</p>}
-                  <p className="mt-1 text-[11px] text-slate-400">Tidak mengikuti filter Dashboard.</p>
-                </div>
               </div>
             )}
           </div>
@@ -242,7 +264,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
           <button
             type="button"
             disabled={!canExport}
-            onClick={() => onConfirm({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, uploadDateFrom, uploadDateTo })}
+            onClick={() => onConfirm({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, kpiMonthTo, uploadDateFrom, uploadDateTo })}
             className="rounded-md bg-brand-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {exporting ? 'Mengekspor...' : 'Export'}

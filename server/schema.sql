@@ -226,3 +226,16 @@ CREATE TABLE IF NOT EXISTS pm_tracking_history (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+-- Kategori KPI bulanan per NOP (SON L1 & SOMSA L0), dibaca dari file KPI List Export.
+-- Regional (R01/R02/R10) dari Master Site. Upload menimpa (kpi_type, period, nop) yang sama.
+CREATE TABLE IF NOT EXISTS kpi_category (
+  kpi_type    VARCHAR(12) NOT NULL,
+  period      INT NOT NULL,
+  regional    VARCHAR(10) NOT NULL,
+  nop         VARCHAR(80) NOT NULL,
+  category    VARCHAR(20) NOT NULL,
+  uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (kpi_type, period, nop)
+) ENGINE=InnoDB;

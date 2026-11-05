@@ -51,6 +51,10 @@ export default function Dashboard({
   const [availabilityWeeks, setAvailabilityWeeks] = useState([]);
   const [availabilityWeeksLoading, setAvailabilityWeeksLoading] = useState(false);
   const [availabilityWeeksError, setAvailabilityWeeksError] = useState('');
+  // Bulan KPI (dari kolom Period) yang tersedia di database untuk slide Profiling KPI.
+  const [kpiMonths, setKpiMonths] = useState([]);
+  const [kpiMonthsLoading, setKpiMonthsLoading] = useState(false);
+  const [kpiMonthsError, setKpiMonthsError] = useState('');
 
   // Report PPT selalu Weekly. Ini daftar minggu yang punya data (dipakai dropdown di ExportModal).
   const getReportWeeks = useCallback(() => listReportPeriods(trendLog, trendCriteria, 'weekly'), [trendLog, trendCriteria]);
@@ -91,12 +95,32 @@ export default function Dashboard({
     () => weeklyTrendRows.slice().reverse().map(({ key, rangeLabel }) => ({ key, label: rangeLabel })),
     [weeklyTrendRows]
   );
+  const loadKpiMonths = async () => {
+    setKpiMonths([]);
+    setKpiMonthsError('');
+    setKpiMonthsLoading(true);
+    try {
+      const { getKpi } = await import('../lib/dbApi.js');
+      const { availableKpiMonths } = await import('../lib/exportKpiProfilingSlide.js');
+      const { monthLabel } = await import('../lib/kpiCategory.js');
+      const rows = await getKpi();
+      const list = Array.isArray(rows) ? rows : [];
+      const year = Math.max(0, ...list.map((r) => Math.floor(r.period / 100)));
+      setKpiMonths(availableKpiMonths(list).map((m) => ({ key: String(m), label: `${monthLabel(m)} ${year}` })));
+    } catch (err) {
+      setKpiMonthsError(err?.message || 'Gagal memuat data KPI.');
+    } finally {
+      setKpiMonthsLoading(false);
+    }
+  };
+
   const openExport = async () => {
     setExportError('');
     setShowExport(true);
     setAvailabilityWeeks([]);
     setAvailabilityWeeksError('');
     setAvailabilityWeeksLoading(true);
+    loadKpiMonths();
     try {
       const { getAvailability } = await import('../lib/dbApi.js');
       const rows = await getAvailability();
@@ -137,7 +161,7 @@ export default function Dashboard({
     };
   }, [trendLog, trendCriteria]);
 
-  const handleConfirmExport = async ({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, uploadDateFrom, uploadDateTo }) => {
+  const handleConfirmExport = async ({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, kpiMonthTo, uploadDateFrom, uploadDateTo }) => {
     setExporting(true);
     setExportError('');
     try {
@@ -159,14 +183,15 @@ export default function Dashboard({
         });
       }
       if (weeklyHuddle) {
-        // Weekly Huddle = 1 file, 2 slide: Slide 1 Trend Weekly Cell Down, Slide 2 Availability.
+        // Weekly Huddle = 1 file, 3 slide: Profiling KPI, Trend Weekly Availability, Trend Weekly Cell Down.
         const selectedWeeks = weeklyTrendRows.filter((row) => row.key >= weekFrom && row.key <= weekTo);
         if (!selectedWeeks.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
         const anomalyCriteria = { ...trendCriteria, regionalFilter: ALL_KEY, category: 'CellDown' };
         const { rows: dailyNopRows } = buildFilteredDailyTrendByNop(trendLog, anomalyCriteria);
-        const { getAvailability } = await import('../lib/dbApi.js');
+        const { getAvailability, getKpi } = await import('../lib/dbApi.js');
         const { exportWeeklyHuddlePpt } = await import('../lib/exportWeeklyHuddlePpt.js');
         await exportWeeklyHuddlePpt({
+          kpi: { rows: await getKpi(), monthTo: Number(kpiMonthTo) },
           trend: { rows: weeklyTrendRows, dailyNopRows, fromWeek: weekFrom, toWeek: weekTo },
           availability: { rows: await getAvailability(), weekFrom: Number(availabilityFrom), weekTo: Number(availabilityTo) },
           fileName: `CDS_Monitoring_Weekly_Huddle_${selectedWeeks[0].label}_${selectedWeeks[selectedWeeks.length - 1].label}.pptx`,
@@ -305,6 +330,9 @@ export default function Dashboard({
           availabilityWeeks={availabilityWeeks}
           availabilityWeeksLoading={availabilityWeeksLoading}
           availabilityWeeksError={availabilityWeeksError}
+          kpiMonths={kpiMonths}
+          kpiMonthsLoading={kpiMonthsLoading}
+          kpiMonthsError={kpiMonthsError}
         />
       )}
 

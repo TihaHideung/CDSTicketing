@@ -9,7 +9,8 @@ import PasswordGateModal from './components/PasswordGateModal.jsx';
 import EasVswrPage from './features/eas-vswr/EasVswrPage.jsx';
 import PmTrackingPage from './features/pm-tracking/PmTrackingPage.jsx';
 import FilterBar, { ALL_KEY, UNSET_KEY } from './components/FilterBar.jsx';
-import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readNoimFile, readAvailabilityFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
+import { buildNopRegionalMap } from './lib/kpiCategory.js';
+import { readMergeFile, readSwfmCheckFile, readMasterSiteFile, readNoimFile, readAvailabilityFile, readKpiFile, readBulkRcUpload, exportBulkRcTemplate } from './lib/excelIO.js';
 import { cleanMergedRows, matchAgainstSwfm, dedupeSiteDownBySiteId, validateRegionalRows } from './lib/cleaning.js';
 import { buildSwfmMaps } from './lib/swfmCheck.js';
 import { computeSummary, buildFilteredDailyTrend, buildFilteredDailyTrendByRegion } from './lib/aggregate.js';
@@ -33,6 +34,9 @@ import {
   replaceNoim,
   saveAvailability,
   getAvailability,
+  saveKpi,
+  getKpi,
+  getSiteMasterNops,
   getNoim,
   getNoimDates,
   getSiteDownDailySets,
@@ -116,6 +120,11 @@ export default function App() {
   const [availUploading, setAvailUploading] = useState(false);
   const [availMessage, setAvailMessage] = useState('');
   const [availError, setAvailError] = useState('');
+  const [kpiFile, setKpiFile] = useState(null);
+  const [kpiUploading, setKpiUploading] = useState(false);
+  const [kpiMessage, setKpiMessage] = useState('');
+  const [kpiError, setKpiError] = useState('');
+  const [kpiSummary, setKpiSummary] = useState(''); // ringkasan data KPI di database
   const [availSummary, setAvailSummary] = useState(null); // { weeks, first, last } data availability di database
   const [noimUploading, setNoimUploading] = useState(false);
   const [noimMessage, setNoimMessage] = useState('');
@@ -189,6 +198,21 @@ export default function App() {
   useEffect(() => {
     refreshAvailSummary();
   }, [refreshAvailSummary]);
+
+  const refreshKpiSummary = useCallback(async () => {
+    try {
+      const rows = await getKpi();
+      const label = (p) => `${['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'][(p % 100) - 1] || p % 100} ${Math.floor(p / 100)}`;
+      const periods = [...new Set((Array.isArray(rows) ? rows : []).map((r) => r.period))].sort((a, b) => a - b);
+      setKpiSummary(periods.length ? `${periods.length} bulan (${label(periods[0])} - ${label(periods[periods.length - 1])})` : '');
+    } catch {
+      setKpiSummary(''); // backend lama belum punya endpoint KPI
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshKpiSummary();
+  }, [refreshKpiSummary]);
 
   const sourceEnabled = categoryFilter === 'SiteDown';
   const effectiveSource = sourceEnabled ? sourceFilter : SOURCE_INAP;
@@ -443,6 +467,34 @@ export default function App() {
       setNoimUploading(false);
     }
   }, [noimFile, noimDate, refreshAll]);
+
+  // Upload KPI: satu file KPI List Export. Kategori SON L1 & SOMSA L0 dibaca langsung dari file,
+  // regional ditentukan dari Master Site (hanya R01, R02, R10). Bulan yang sama diperbarui.
+  const handleUploadKpi = useCallback(async () => {
+    if (!kpiFile) return;
+    setKpiUploading(true);
+    setKpiError('');
+    setKpiMessage('');
+    try {
+      const masterNops = await getSiteMasterNops();
+      const nopRegionalMap = buildNopRegionalMap(Array.isArray(masterNops) ? masterNops : []);
+      if (!nopRegionalMap.size) throw new Error('Master Site belum berisi NOP untuk R01, R02, R10. Upload Master Site dulu.');
+      const { rows, months, skippedOtherRegional, skippedInvalid } = await readKpiFile(kpiFile, nopRegionalMap);
+      await saveKpi(rows);
+      await refreshKpiSummary();
+      setKpiFile(null);
+      const nopCount = new Set(rows.map((r) => r.nop)).size;
+      setKpiMessage(
+        `Data KPI tersimpan: ${nopCount} NOP (R01, R02, R10) dari ${months.length} bulan.` +
+        `${skippedOtherRegional ? ` ${skippedOtherRegional} baris NOP di luar R01/R02/R10 atau tidak ada di Master Site dilewati.` : ''}` +
+        `${skippedInvalid ? ` ${skippedInvalid} baris tidak valid dilewati.` : ''}`
+      );
+    } catch (err) {
+      setKpiError(err.message || String(err));
+    } finally {
+      setKpiUploading(false);
+    }
+  }, [kpiFile, refreshKpiSummary]);
 
   const handleUploadAvail = useCallback(async () => {
     if (!availFile) return;
@@ -895,6 +947,13 @@ export default function App() {
           availSummary={availSummary}
           availMessage={availMessage}
           availError={availError}
+          kpiFile={kpiFile}
+          onKpiFileChange={setKpiFile}
+          onUploadKpi={handleUploadKpi}
+          kpiUploading={kpiUploading}
+          kpiSummary={kpiSummary}
+          kpiMessage={kpiMessage}
+          kpiError={kpiError}
         />
       );
     }
@@ -972,7 +1031,7 @@ export default function App() {
     return null;
   }, [
     active, mergeFile, swfmFile, masterFile, processing, progressMessage, error, uploadDateMode, uploadDate, processMessage, dailyTrendLog,
-    masterImporting, masterCount, noimFile, noimUploading, noimMessage, noimError, availFile, availUploading, availMessage, availError, availSummary, handleUploadAvail, noimSiteSet, noimDate, noimDates, trendSkippedDates, sourceStats, sourceFilter, effectiveSource, summary, removedStats, dailyTrend, dailyTrendByRegion,
+    masterImporting, masterCount, noimFile, noimUploading, noimMessage, noimError, availFile, availUploading, availMessage, availError, availSummary, handleUploadAvail, kpiFile, kpiUploading, kpiMessage, kpiError, kpiSummary, handleUploadKpi, noimSiteSet, noimDate, noimDates, trendSkippedDates, sourceStats, sourceFilter, effectiveSource, summary, removedStats, dailyTrend, dailyTrendByRegion,
     trendHasGranularFilter, trendLogHasOlderData, activeTrendLog, trendCriteria, regionalFilter,
     nopFilter, clusterFilter, categoryFilter, durationFilter, rcFilter, rcSubFilter, dateFrom, dateTo, nopOptions, clusterOptions, viewRows,
     handleProcess, handleUploadDateModeChange, handleExport, handleImportMaster, handleUploadNoim, handleCategoryChange, handleDownloadBulkRcTemplate, handleBulkRcUpload,

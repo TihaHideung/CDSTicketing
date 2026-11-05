@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
+import { parsePeriod, normalizeNop, normalizeCategory } from './kpiCategory.js';
 import {
   MERGE_COLUMNS,
   MERGE_REQUIRED_HEADERS,
@@ -204,6 +205,7 @@ function cellText(v) {
 }
 
 const AVAILABILITY_REQUIRED_HEADERS = ['period', 'regional', 'availability (%)'];
+const KPI_REQUIRED_HEADERS = ['NOP', 'Period'];
 
 function toNumber(v) {
   if (v == null || v === '') return null;
@@ -255,6 +257,66 @@ export async function readAvailabilityFile(file) {
   }
   const rows = [...byKey.values()].sort((a, b) => a.period - b.period || a.regional.localeCompare(b.regional));
   return { rows, skippedOtherRegional, skippedInvalid, duplicates };
+}
+
+/**
+ * Baca file "KPI List Export" (satu baris per NOP per bulan, semua regional).
+ * Kolom yang dipakai: NOP, Period, "SON L1 Score Kategori" dan "SOMSA L0 Score Kategori"
+ * (di file asli ditulis "SONL 1 Score Category" / "SOMSAL 0 Score Category").
+ * Regional tidak ada di file: NOP dicocokkan ke Master Site lewat `nopRegionalMap`
+ * (buildNopRegionalMap), dan hanya NOP di R01 / R02 / R10 yang disimpan.
+ * Return: { rows: [{ kpiType, period, regional, nop, category }], months, skippedOtherRegional, skippedInvalid }
+ */
+export async function readKpiFile(file, nopRegionalMap) {
+  const wb = await readWorkbook(file, { wantDates: false });
+  const found = findDataSheet(wb, KPI_REQUIRED_HEADERS);
+  if (!found) {
+    throw new Error(
+      `Tidak menemukan kolom "${KPI_REQUIRED_HEADERS.join('", "')}" di file "${file.name}". Pastikan ini file KPI List Export yang benar.`
+    );
+  }
+  const raw = sheetToJsonFromHeaderRow(found.ws, found.headerRow);
+  const squash = (k) => String(k).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const lc = (r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [squash(k), v]));
+  const isCategoryKey = (k) => k.endsWith('category') || k.endsWith('kategori');
+  const sample = raw.length ? lc(raw[0]) : {};
+  const sonKey = Object.keys(sample).find((k) => k.startsWith('sonl1score') && isCategoryKey(k));
+  const somsaKey = Object.keys(sample).find((k) => k.startsWith('somsal0score') && isCategoryKey(k));
+  if (!sonKey || !somsaKey) {
+    throw new Error(
+      `Kolom "SON L1 Score Kategori" dan/atau "SOMSA L0 Score Kategori" tidak ditemukan di file "${file.name}".`
+    );
+  }
+
+  const byKey = new Map(); // satu baris per (jenis, bulan, NOP); kalau dobel, baris terakhir dipakai
+  let skippedOtherRegional = 0;
+  let skippedInvalid = 0;
+  for (const r0 of raw) {
+    const r = lc(r0);
+    const period = parsePeriod(r['period']);
+    const nop = normalizeNop(r['nop']);
+    if (!nop || !period) {
+      skippedInvalid++;
+      continue;
+    }
+    const regional = nopRegionalMap.get(nop);
+    if (!regional) {
+      skippedOtherRegional++;
+      continue;
+    }
+    for (const [kpiType, key] of [['SON_L1', sonKey], ['SOMSA_L0', somsaKey]]) {
+      const category = normalizeCategory(r[key]);
+      if (!category) continue;
+      byKey.set(`${kpiType}|${period}|${nop}`, { kpiType, period, regional, nop, category });
+    }
+  }
+  const rows = [...byKey.values()].sort((a, b) => a.kpiType.localeCompare(b.kpiType) || a.period - b.period || a.regional.localeCompare(b.regional) || a.nop.localeCompare(b.nop));
+  if (!rows.length) {
+    throw new Error(
+      `Tidak ada baris KPI yang cocok dengan NOP di Master Site (R01, R02, R10) pada "${file.name}". Pastikan Master Site sudah diupload.`
+    );
+  }
+  return { rows, months: [...new Set(rows.map((r) => r.period))].sort(), skippedOtherRegional, skippedInvalid };
 }
 
 /**
