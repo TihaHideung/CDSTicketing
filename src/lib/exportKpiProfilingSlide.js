@@ -56,8 +56,8 @@ export function availableKpiMonths(kpiRows) {
 }
 
 function addDistributionChart(pptx, slide, dist, type) {
-  // SON L1: Kurang paling bawah -> Baik Sekali; SOMSA L0: Istimewa paling bawah -> Kurang (seperti PPT).
-  const order = type.key === 'SON_L1' ? KPI_CATEGORIES : [...KPI_CATEGORIES].reverse();
+  // Urutan seri menentukan kategori dari bawah ke atas pada grafik bertumpuk.
+  const order = KPI_CATEGORIES;
   const present = order.filter((c) => dist.regionals.some((r) => dist.months.some((m) => dist.counts[r][m][c] > 0)));
 
   const leaf = [];
