@@ -1,4 +1,5 @@
 import { BUCKETS, BUCKET_LABELS } from '../features/eas-vswr/lib/easReport.js';
+import { getSlideChartPaths, normalizeComboXml } from './pptxUtils.js';
 
 /*
  * Slide "EAS Validation | Area 1" untuk Weekly Huddle (header, font, dan kartu disamakan dengan
@@ -229,6 +230,20 @@ function addAchChart(pptx, slide, { cat, daily, x, y, w, h }) {
       objectName: `Chart Ach ${cat.label}`,
     }
   );
+}
+
+/**
+ * Rapikan XML 2 grafik batang+garis di slide EAS agar valid di PowerPoint (axId, urutan elemen line series).
+ * Dipanggil setelah deck ditulis ke zip; `slideNo` = nomor slide EAS di deck.
+ */
+export async function fixEasValidationCharts(zip, slideNo) {
+  const paths = await getSlideChartPaths(zip, slideNo);
+  for (const path of paths) {
+    const file = zip.file(path);
+    if (!file) continue;
+    const { xml } = normalizeComboXml(await file.async('string'), { color: '14202B', width: 25400, marker: true, markerSize: 6 });
+    zip.file(path, xml);
+  }
 }
 
 /** Tambahkan slide EAS Validation ke deck `pptx`. `data` dari buildEasWeekData; `weekLabel` mis. 'W41'. */

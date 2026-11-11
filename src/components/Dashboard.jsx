@@ -190,11 +190,15 @@ export default function Dashboard({
         const { rows: dailyNopRows } = buildFilteredDailyTrendByNop(trendLog, anomalyCriteria);
         // Trend daily per regional (grafik daily minggu terakhir di slide Weekly Trend Cell Down).
         const dailyRows = buildFilteredDailyTrendByRegion(trendLog, REGIONS, anomalyCriteria);
+        // Trend daily per NOP di tiap regional (batang per NOP di 3 kartu regional).
+        const dailyNopByRegion = Object.fromEntries(
+          REGIONS.map((region) => [region, buildFilteredDailyTrendByNop(trendLog, { ...anomalyCriteria, regionalFilter: region })])
+        );
         const { getAvailability, getKpi, getEasVswrHistory } = await import('../lib/dbApi.js');
         const { exportWeeklyHuddlePpt } = await import('../lib/exportWeeklyHuddlePpt.js');
         await exportWeeklyHuddlePpt({
           kpi: { rows: await getKpi(), monthTo: Number(kpiMonthTo) },
-          trend: { rows: weeklyTrendRows, dailyNopRows, dailyRows, fromWeek: weekFrom, toWeek: weekTo },
+          trend: { rows: weeklyTrendRows, dailyNopRows, dailyRows, dailyNopByRegion, fromWeek: weekFrom, toWeek: weekTo },
           availability: { rows: await getAvailability(), weekFrom: Number(availabilityFrom), weekTo: Number(availabilityTo) },
           eas: { history: await getEasVswrHistory() },
           fileName: `CDS_Monitoring_Weekly_Huddle_${selectedWeeks[0].label}_${selectedWeeks[selectedWeeks.length - 1].label}.pptx`,

@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import { addWeeklyTrendSlide, injectDataLabels } from './exportWeeklyTrendPpt.js';
 import { addAvailabilitySlide, fixAvailabilityCharts, buildAvailabilitySeries } from './exportAvailabilityPpt.js';
 import { addKpiProfilingSlide, availableKpiMonths, filterKpiRowsToMonth, idDateLabel } from './exportKpiProfilingSlide.js';
-import { addEasValidationSlide, buildEasWeekData } from './exportEasValidationSlide.js';
+import { addEasValidationSlide, buildEasWeekData, fixEasValidationCharts } from './exportEasValidationSlide.js';
 import { getSlideChartPaths, loadLogoDataUrl, downloadPptx } from './pptxUtils.js';
 
 /*
@@ -34,6 +34,7 @@ export async function buildWeeklyHuddlePptx({ kpi, trend, availability, eas, log
   // Slide 1 (KPI) tidak butuh perbaikan XML; chart-nya sudah lengkap dari pptxgenjs.
   await fixAvailabilityCharts(zip, await getSlideChartPaths(zip, 2), availabilitySpecs);
   await injectDataLabels(zip, await getSlideChartPaths(zip, 3), trendResult.chartSpecs, trendResult.table);
+  await fixEasValidationCharts(zip, 4);
   return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
 }
 
