@@ -259,10 +259,10 @@ export async function injectDataLabels(zip, chartPaths, chartSpecs, table) {
       const tx = ser.match(/<c:tx>[\s\S]*?<\/c:tx>/)[0];
       const cat = ser.match(/<c:cat>[\s\S]*?<\/c:cat>/)[0];
       const val = ser.match(/<c:val>[\s\S]*?<\/c:val>/)[0];
-      const lineStyle = `<c:spPr><a:ln w="22225"><a:solidFill><a:srgbClr val="${spec.color}"/></a:solidFill><a:round/></a:ln></c:spPr>`;
+      const lineStyle = `<c:spPr><a:ln w="28575" cap="rnd"><a:solidFill><a:srgbClr val="${spec.color}"/></a:solidFill><a:round/></a:ln></c:spPr>`;
       const lineSeries =
-        `<c:ser><c:idx val="2"/><c:order val="2"/>${tx}${lineStyle}<c:marker><c:symbol val="circle"/><c:size val="5"/></c:marker>` +
-        `${dLblsXml(spec)}${cat}${val}<c:smooth val="0"/></c:ser>`;
+        `<c:ser><c:idx val="2"/><c:order val="2"/>${tx}${lineStyle}<c:marker><c:symbol val="none"/></c:marker>` +
+        `${dLblsXml(spec)}${cat}${val}<c:smooth val="1"/></c:ser>`;
       return `${open}<c:grouping val="standard"/><c:varyColors val="0"/>${lineSeries}`;
     });
     xml = xml.replace(/(<c:lineChart>[\s\S]*?<\/c:ser>)([\s\S]*?)(<\/c:lineChart>)/, (match, head, rest, close) => {
@@ -320,10 +320,9 @@ function chartOptions({ x, y, w, h, color, min = 0, max, skip, showYAxis = false
     showTitle: false,
     showLegend: false,
     chartColors: [color],
-    lineSize: 1.75,
-    lineDataSymbol: 'circle',
-    lineDataSymbolSize: 5,
-    lineSmooth: false,
+    lineSize: 2.25,
+    lineDataSymbol: 'none',
+    lineSmooth: true,
     showValue: false,
     valAxisHidden: !showYAxis,
     valAxisMinVal: min,
@@ -352,7 +351,7 @@ function addComboChart(pptx, slide, { name, labels, values, color, barColor, ...
   slide.addChart(
     [
       { type: pptx.ChartType.bar, data: series, options: { chartColors: [barColor], barGapWidthPct: 60 } },
-      { type: pptx.ChartType.line, data: series, options: { chartColors: [color], lineSize: 1.75, lineDataSymbol: 'circle', lineDataSymbolSize: 5, lineSmooth: false } },
+      { type: pptx.ChartType.line, data: series, options: { chartColors: [color], lineSize: 2.25, lineDataSymbol: 'none', lineSmooth: true } },
     ],
     chartOptions({ ...options, color })
   );
