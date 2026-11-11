@@ -77,10 +77,10 @@ export default function EasVswrPage() {
   // bagian yang tidak diupload dipertahankan dari record tanggal itu.
   //
   // Urutan kerja EAS (penting):
-  //   1) ACH VALIDASI dulu: site ber-Date Revisi H-1 yang sudah Done di Streamlit dicocokkan dengan
-  //      baseline TERAKHIR yang tersimpan, supaya prioritas sebelum berubah ke Done diketahui.
-  //   2) Lalu BASELINE diperbarui dari File EAS hari ini (site yang masih terbuka per Prio Actual)
-  //      dan disimpan (easSites) untuk upload berikutnya.
+  //   1) ACH VALIDASI dulu: site ber-Date Revisi H-1 yang sudah Done di File EAS (Manual Validation)
+  //      dicocokkan dengan baseline TERAKHIR yang tersimpan, supaya prioritas sebelum berubah ke Done diketahui.
+  //   2) Lalu BASELINE diperbarui dari Upload Data Streamlit hari ini (site yang masih terbuka per
+  //      Final Priority) dan disimpan (easSites) untuk upload berikutnya.
   // Yang disimpan seperlunya: tabel EAS hasil hitung, catatan, dan daftar Site ID terbuka.
   const handleUpload = useCallback(async () => {
     setError('')
@@ -108,26 +108,26 @@ export default function EasVswrPage() {
       if (hasEasPair) {
         const [easBuf, detailBuf] = await Promise.all([easFile.arrayBuffer(), detailFile.arrayBuffer()])
 
-        // 1) Ach Validasi: Streamlit (Date Revisi H-1 + Done) x baseline upload sebelumnya.
+        // 1) Ach Validasi: File EAS / Manual Validation (Date Revisi H-1 + Done) x baseline upload sebelumnya.
         const prev = getPreviousEasRecord(history, dateISO)
-        const streamlit = parseEasDetail(detailBuf, { revisiDateISO })
-        const ach = computeAch({ revisedDone: streamlit.revisedDone, prevSites: prev?.easSites ?? null })
+        const manual = parseManualValidation(easBuf, { revisiDateISO, areaLabel: AREA_LABEL })
+        const ach = computeAch({ revisedDone: manual.revisedDone, prevSites: prev?.easSites ?? null })
 
-        // 2) Baseline baru: site terbuka (Prio Actual P1..P7) dari File EAS hari ini.
-        const baseline = parseManualValidation(easBuf, { areaLabel: AREA_LABEL })
+        // 2) Baseline baru: site terbuka (Final Priority P1..P7) dari Upload Data Streamlit hari ini.
+        const baseline = parseEasDetail(detailBuf, { areaLabel: AREA_LABEL })
 
         easReport = buildEasReport({ baseline: baseline.nops, ach: ach.byNop })
         easSites = baseline.sites
         easInfo = {
           revisiDateISO,
           revisiDateLabel: isoToShortLabel(revisiDateISO),
-          revisedTotal: streamlit.revisedTotal, // site ber-Date Revisi H-1 di Streamlit
-          revisedDone: streamlit.revisedDone.length, // ... yang sudah Done
+          revisedTotal: manual.revisedTotal, // site ber-Date Revisi H-1 di File EAS
+          revisedDone: manual.revisedDone.length, // ... yang sudah Done
           matched: ach.matched, // ... yang prioritas awalnya ditemukan di baseline sebelumnya
           unmatched: ach.unmatched,
           baselineFromDateISO: prev?.dateISO ?? null, // tanggal baseline yang dipakai; null = belum ada
-          availableDates: streamlit.availableDates,
-          snapshotLabel: streamlit.snapshotLabel,
+          availableDates: manual.availableDates,
+          snapshotLabel: baseline.snapshotLabel,
           baselineStats: baseline.stats,
         }
       }

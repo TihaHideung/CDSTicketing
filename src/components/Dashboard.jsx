@@ -183,17 +183,20 @@ export default function Dashboard({
         });
       }
       if (weeklyHuddle) {
-        // Weekly Huddle = 1 file, 3 slide: Profiling KPI, Trend Weekly Availability, Trend Weekly Cell Down.
+        // Weekly Huddle = 1 file, 4 slide: Profiling KPI, Trend Weekly Availability, Trend Weekly Cell Down, EAS Validation.
         const selectedWeeks = weeklyTrendRows.filter((row) => row.key >= weekFrom && row.key <= weekTo);
         if (!selectedWeeks.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
         const anomalyCriteria = { ...trendCriteria, regionalFilter: ALL_KEY, category: 'CellDown' };
         const { rows: dailyNopRows } = buildFilteredDailyTrendByNop(trendLog, anomalyCriteria);
-        const { getAvailability, getKpi } = await import('../lib/dbApi.js');
+        // Trend daily per regional (grafik daily minggu terakhir di slide Weekly Trend Cell Down).
+        const dailyRows = buildFilteredDailyTrendByRegion(trendLog, REGIONS, anomalyCriteria);
+        const { getAvailability, getKpi, getEasVswrHistory } = await import('../lib/dbApi.js');
         const { exportWeeklyHuddlePpt } = await import('../lib/exportWeeklyHuddlePpt.js');
         await exportWeeklyHuddlePpt({
           kpi: { rows: await getKpi(), monthTo: Number(kpiMonthTo) },
-          trend: { rows: weeklyTrendRows, dailyNopRows, fromWeek: weekFrom, toWeek: weekTo },
+          trend: { rows: weeklyTrendRows, dailyNopRows, dailyRows, fromWeek: weekFrom, toWeek: weekTo },
           availability: { rows: await getAvailability(), weekFrom: Number(availabilityFrom), weekTo: Number(availabilityTo) },
+          eas: { history: await getEasVswrHistory() },
           fileName: `CDS_Monitoring_Weekly_Huddle_${selectedWeeks[0].label}_${selectedWeeks[selectedWeeks.length - 1].label}.pptx`,
         });
       }

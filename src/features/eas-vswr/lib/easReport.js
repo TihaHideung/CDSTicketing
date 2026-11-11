@@ -1,19 +1,19 @@
 // Logika tabel "Report Daily EAS" (Extended & Quickwin) seperti sheet Report Extended / Report Quickwin
 // di Excel Report Daily:
 //
-//   Baseline (site belum validasi) : P1 | P2-P5 | P6 | P7 | Total   <- dari File EAS (Prio Actual) hari ini
+//   Baseline (site belum validasi) : P1 | P2-P5 | P6 | P7 | Total   <- dari Upload Data Streamlit (Final Priority) hari ini
 //   Target D-1
-//   Ach Validasi                   : P1 | P2-P5 | P6 | P7 | Total   <- dari Upload Data Streamlit
+//   Ach Validasi                   : P1 | P2-P5 | P6 | P7 | Total   <- dari File EAS (Manual Validation)
 //   % Daily Ach                    : Total Ach Validasi / Target D-1
 //   Ach Total                      : Baseline (total site) | Done | Ach% | Sisa Target
 //
 // Alur harian (urutan penting):
-//   1. ACH VALIDASI dulu: site yang Date Revisi-nya H-1 dan sudah Done di Streamlit dicocokkan dengan
+//   1. ACH VALIDASI dulu: site yang Date Revisi-nya H-1 dan sudah Done di File EAS dicocokkan dengan
 //      BASELINE TERAKHIR yang tersimpan (upload sebelumnya) untuk tahu prioritasnya SEBELUM berubah ke Done.
-//   2. Setelah itu BASELINE diperbarui dari File EAS hari ini (site yang masih terbuka per Prio Actual)
+//   2. Setelah itu BASELINE diperbarui dari Upload Data Streamlit hari ini (site yang masih terbuka per Final Priority)
 //      dan disimpan untuk dipakai upload berikutnya.
 //
-// Done = Total site - Baseline hari ini (Prio Actual pagi ini sudah memuat site yang selesai kemarin,
+// Done = Total site - Baseline hari ini (Final Priority Streamlit sudah memuat site yang selesai kemarin,
 // jadi Ach Validasi TIDAK ditambahkan lagi ke Done supaya tidak dobel).
 
 export const CATEGORIES = [
@@ -132,11 +132,11 @@ export function indexBaselineSites(easSites) {
 }
 
 /**
- * ACH VALIDASI: untuk tiap site yang sudah Done di Streamlit dan Date Revisi-nya H-1, cari
+ * ACH VALIDASI: untuk tiap site yang sudah Done di File EAS dan Date Revisi-nya H-1, cari
  * prioritasnya di baseline TERAKHIR yang tersimpan (sebelum berubah ke Done).
  * Site yang tidak ada di baseline itu (mis. sudah Done sejak lama) dilewati.
  *
- * @param revisedDone [{ site, cat }]  hasil parseEasDetail
+ * @param revisedDone [{ site, cat }]  hasil parseManualValidation
  * @param prevSites   easSites dari record baseline sebelumnya (atau null kalau belum ada)
  * @returns { byNop, matched, unmatched }
  */
@@ -166,8 +166,8 @@ export function computeAch({ revisedDone, prevSites }) {
 }
 
 /**
- * @param baseline  [{ regional, nop, extended:{ total, notDone:{P1,'P2-P5',P6,P7} }, quickwin:{..} }]  (File EAS hari ini)
- * @param ach       { [nopKey]: { nop, regional, extended:{..buckets}, quickwin:{..} } }                 (computeAch)
+ * @param baseline  [{ regional, nop, extended:{ total, notDone:{P1,'P2-P5',P6,P7} }, quickwin:{..} }]  (Streamlit hari ini)
+ * @param ach       { [nopKey]: { nop, regional, extended:{..buckets}, quickwin:{..} } }                 (computeAch dari File EAS)
  * @returns { extended: Report, quickwin: Report }  Report = { area, regionals: [{ regional, ...row, nops: [row] }] }
  */
 export function buildEasReport({ baseline, ach = {}, targets = DEFAULT_TARGETS }) {

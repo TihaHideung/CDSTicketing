@@ -1,13 +1,5 @@
 import * as XLSX from 'xlsx'
-import {
-  BUCKETS,
-  DONE_RANK,
-  bucketOfRank,
-  nopKey,
-  normalizeCategory,
-  normalizeRegional,
-  priorityRank,
-} from './easReport.js'
+import { DONE_RANK, normalizeCategory, priorityRank } from './easReport.js'
 
 // Opsi hemat memori/waktu: hanya nilai sel yang dibutuhkan (tanpa rumus, style, teks format).
 const LEAN_READ = { dense: true, cellFormula: false, cellHTML: false, cellStyles: false, cellNF: false, cellText: false }
@@ -42,28 +34,28 @@ function findHeader(rows) {
     const idx = {
       site: cells.indexOf('SITE ID'),
       area: cells.indexOf('AREA'),
-      regional: cells.indexOf('REGIONAL'),
-      nop: cells.indexOf('NOP_NAME'),
       kat: cells.indexOf('KATEGORI SITE'),
-      prio: cells.indexOf('PRIO ACTUAL (A1)'),
+      drev: cells.indexOf('DATE REVISI'),
+      final: cells.indexOf('FINAL PRIORITY'),
     }
-    if (idx.site >= 0 && idx.nop >= 0 && idx.kat >= 0 && idx.prio >= 0) return { headerRow: r, idx }
+    if (idx.site >= 0 && idx.kat >= 0 && idx.drev >= 0 && idx.final >= 0) return { headerRow: r, idx }
   }
   return null
 }
 
 /**
- * "File EAS" = Manual Validation, sheet "Site_List" -> BASELINE hari ini.
- * Tiap pagi Prio Actual (A1) site yang sudah selesai berubah jadi "Done", jadi site yang MASIH
- * TERBUKA (P1..P7) = baseline: dihitung per NOP, kategori (Extended/Quickwin), dan P1 / P2-P5 / P6 / P7.
- * Total site per NOP & kategori = semua site Area 1 (Done + terbuka).
+ * "File EAS" = Manual Validation, sheet "Site_List" -> bahan ACH VALIDASI.
+ * Yang diambil: site Area 1 dengan Date Revisi = H-1 yang Final Priority-nya sudah "Done".
+ * Prioritas awal site-site itu (sebelum berubah ke Done) dicari di baseline tersimpan
+ * (dari Upload Data Streamlit sebelumnya) lewat computeAch().
  *
- * Selain hitungan, daftar Site ID yang terbuka ikut dikembalikan (`sites`) dan disimpan, karena
- * besok daftar inilah yang dipakai untuk tahu prioritas awal site yang berubah ke Done (Ach Validasi).
+ * Site ID dicocokkan bersama kategorinya. Site yang punya beberapa baris di kategori yang sama
+ * dianggap Done hanya kalau semua barisnya Done.
  *
  * @param buffer ArrayBuffer isi file .xlsx
+ * @param revisiDateISO  tanggal Date Revisi yang dicari (H-1), format YYYY-MM-DD
  */
-export function parseManualValidation(buffer, { areaLabel = 'Area 1' } = {}) {
+export function parseManualValidation(buffer, { revisiDateISO, areaLabel = 'Area 1' }) {
   const names = XLSX.read(buffer, { type: 'array', bookSheets: true }).SheetNames
   const sheetName = names.find((n) => /^site[\s_]?list$/i.test(n.trim()))
   if (!sheetName) {
@@ -75,15 +67,12 @@ export function parseManualValidation(buffer, { areaLabel = 'Area 1' } = {}) {
 
   const found = findHeader(rows)
   if (!found) {
-    throw new Error('Kolom Site ID, NOP_NAME, Kategori Site, dan Prio Actual (A1) tidak ditemukan di sheet Site_List.')
+    throw new Error('Kolom Site ID, Kategori Site, Date Revisi, dan Final Priority tidak ditemukan di sheet Site_List.')
   }
   const { headerRow, idx } = found
   const wantedArea = up(areaLabel)
 
-  // Satu site (Site ID + kategori) dihitung sekali. Kalau ada baris ganda, yang masih terbuka
-  // (rank terkecil) menang atas "Done".
-  const sites = new Map() // `${site}|${cat}` -> { rank, nop, regional, cat }
-  let unknown = 0
+  const sites = new Map() // `${siteId}|${cat}` -> { rank, date }
   for (let r = headerRow + 1; r < rows.length; r++) {
     const row = rows[r]
     if (!row) continue
@@ -91,49 +80,38 @@ export function parseManualValidation(buffer, { areaLabel = 'Area 1' } = {}) {
     if (!siteId) continue
     if (idx.area >= 0 && up(row[idx.area]) !== wantedArea) continue
     const cat = normalizeCategory(row[idx.kat])
-    const nop = nopKey(row[idx.nop])
-    if (!cat || !nop) continue
-    const rank = priorityRank(row[idx.prio])
-    if (rank == null) {
-      unknown += 1 // Prio Actual kosong / error (#N/A): tidak dihitung
-      continue
-    }
+    const rank = priorityRank(row[idx.final])
+    if (!cat || rank == null) continue
+    const date = toISODate(row[idx.drev])
     const key = `${siteId}|${cat}`
     const prev = sites.get(key)
-    if (!prev) {
-      sites.set(key, { siteId, rank, nop, cat, regional: idx.regional >= 0 ? normalizeRegional(row[idx.regional]) : '' })
-    } else if (rank < prev.rank) {
-      prev.rank = rank
+    if (!prev) sites.set(key, { siteId, cat, rank, date })
+    else {
+      if (rank < prev.rank) prev.rank = rank
+      if (!prev.date && date) prev.date = date
     }
   }
   if (!sites.size) throw new Error('Tidak ada site Area 1 yang valid di sheet Site_List.')
 
-  const byNop = new Map()
-  const openSites = {} // untuk disimpan: { [nopKey]: { nop, regional, extended: { "1": [ids] }, quickwin } }
-  let open = 0
+  const revisedDone = []
+  let revisedTotal = 0
+  const doneDates = {}
   for (const s of sites.values()) {
-    if (!byNop.has(s.nop)) {
-      byNop.set(s.nop, {
-        nop: s.nop,
-        regional: s.regional,
-        extended: { total: 0, notDone: Object.fromEntries(BUCKETS.map((b) => [b, 0])) },
-        quickwin: { total: 0, notDone: Object.fromEntries(BUCKETS.map((b) => [b, 0])) },
-      })
+    if (s.date === revisiDateISO) {
+      revisedTotal += 1
+      if (s.rank === DONE_RANK) revisedDone.push({ site: s.siteId, cat: s.cat })
     }
-    const n = byNop.get(s.nop)
-    if (!n.regional && s.regional) n.regional = s.regional
-    n[s.cat].total += 1
-    if (s.rank !== DONE_RANK) {
-      n[s.cat].notDone[bucketOfRank(s.rank)] += 1
-      open += 1
-      const o = (openSites[s.nop] ||= { nop: s.nop, regional: n.regional, extended: {}, quickwin: {} })
-      ;(o[s.cat][s.rank] ||= []).push(s.siteId)
-    }
+    if (s.rank === DONE_RANK && s.date) doneDates[s.date] = (doneDates[s.date] || 0) + 1
   }
 
   return {
-    nops: [...byNop.values()],
-    sites: openSites,
-    stats: { sites: sites.size, open, done: sites.size - open, unknown },
+    revisedDone, // [{ site, cat }] -> masuk computeAch()
+    revisedTotal, // semua site ber-Date Revisi H-1 (Done maupun belum)
+    // beberapa tanggal Date Revisi terakhir (yang sudah Done) di file, untuk petunjuk kalau H-1 kosong
+    availableDates: Object.keys(doneDates)
+      .sort()
+      .slice(-4)
+      .map((dateISO) => ({ dateISO, count: doneDates[dateISO] })),
+    stats: { uniqueSites: sites.size },
   }
 }

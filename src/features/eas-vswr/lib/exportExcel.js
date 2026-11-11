@@ -252,8 +252,8 @@ function buildEasReportSheet(wb, record, cat) {
   ws.getCell(2, 1).value =
     info && 'matched' in info
       ? info.baselineFromDateISO
-        ? `Ach Validasi: ${info.matched} site Date Revisi ${dmy(info.revisiDateISO)} (Done di Streamlit), prioritas awal dari baseline ${dmy(info.baselineFromDateISO)} | Baseline: Prio Actual File EAS`
-        : 'Belum ada baseline sebelumnya, Ach Validasi masih kosong | Baseline: Prio Actual File EAS'
+        ? `Ach Validasi: ${info.matched} site Date Revisi ${dmy(info.revisiDateISO)} (Done di File EAS), prioritas awal dari baseline Streamlit ${dmy(info.baselineFromDateISO)} | Baseline: Final Priority Streamlit`
+        : 'Belum ada baseline sebelumnya, Ach Validasi masih kosong | Baseline: Final Priority Streamlit'
       : ''
   ws.getCell(2, 1).font = { italic: true, color: { argb: 'FF6B7686' } }
 

@@ -7,8 +7,10 @@ import { getSlideChartPaths } from './pptxUtils.js';
 /*
  * Export "Trend Weekly Cell Down | Area 1 & Regional"
  * Layout mengikuti PPT Area 4 (13.33" x 7.5"):
- *   - kartu atas   : total semua regional (angka besar + badge selisih + line chart)
- *   - 3 kartu bawah: Sumbagut / Sumbagteng / Sumbagsel (angka + badge + line chart)
+ *   - kartu atas   : total semua regional (angka besar + badge selisih + 2 line chart:
+ *                    trend weekly rentang terpilih | trend daily di minggu terakhir)
+ *   - 3 kartu bawah: Sumbagut / Sumbagteng / Sumbagsel (angka + badge selisih ticket vs minggu
+ *                    sebelumnya + line chart trend daily di minggu terakhir)
  * Label nilai pada titik tertentu (awal, puncak, tengah, akhir) dibuat sebagai data label
  * native PowerPoint lewat post-process XML chart, jadi tetap menempel ke titik datanya.
  */
@@ -121,13 +123,13 @@ function buildExtremeIncreaseSummary(increases) {
 }
 
 // Selisih minggu terakhir terhadap minggu sebelumnya (boleh di luar rentang terpilih).
-function buildDelta(lastValue, prevValue, prevLabel, withPrevValue = false) {
+function buildDelta(lastValue, prevValue, prevLabel, withPrevValue = false, unitOverride = null) {
   if (prevValue == null) return { text: 'Belum ada data minggu sebelumnya', kind: 'flat' };
   const diff = lastValue - prevValue;
   const suffix = withPrevValue ? ` (${fmt(prevValue)})` : '';
   if (diff === 0) return { text: `Tetap vs ${prevLabel}${suffix}`, kind: 'flat' };
   const word = diff > 0 ? 'Naik' : 'Turun';
-  const unit = withPrevValue ? 'Cells' : 'Cell';
+  const unit = unitOverride || (withPrevValue ? 'Cells' : 'Cell');
   return { text: `${word} ${fmt(Math.abs(diff))} ${unit} vs ${prevLabel}${suffix}`, kind: diff > 0 ? 'up' : 'down' };
 }
 
@@ -191,9 +193,9 @@ const colLetter = (i) => String.fromCharCode(65 + i); // 0 -> A (cukup untuk <= 
 const xmlEscape = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 // Workbook xlsx minimal: kolom A = Week, kolom berikutnya = tiap series.
-async function buildWorkbook(labels, columns) {
+async function buildWorkbook(labels, columns, header = 'Week') {
   const strCell = (ref, text) => `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(text)}</t></is></c>`;
-  const head = strCell('A1', 'Week') + columns.map((c, i) => strCell(`${colLetter(i + 1)}1`, c.name)).join('');
+  const head = strCell('A1', header) + columns.map((c, i) => strCell(`${colLetter(i + 1)}1`, c.name)).join('');
   const body = labels
     .map((label, r) => {
       const row = r + 2;
@@ -244,10 +246,14 @@ async function buildWorkbook(labels, columns) {
 // pptxgenjs menamai file chart berurutan sesuai urutan addChart (chart1.xml, chart2.xml, ...).
 // `chartPaths` = path file chart milik slide ini (urut addChart), dari getSlideChartPaths.
 export async function injectDataLabels(zip, chartPaths, chartSpecs, table) {
-  // Satu tabel lengkap (Week | tiap regional | total Area) dipakai semua chart, seperti PPT Area 4.
-  const workbook = await buildWorkbook(table.labels, table.columns);
-  const rowCount = table.labels.length + 1;
+  // Satu tabel lengkap (Week | tiap regional | total Area) dipakai chart weekly, seperti PPT Area 4.
+  // Chart daily memakai tabel sendiri (spec.table: Tanggal | tiap regional | total Area).
+  const workbooks = new Map();
   for (let i = 0; i < chartSpecs.length; i++) {
+    const tbl = chartSpecs[i].table || table;
+    if (!workbooks.has(tbl)) workbooks.set(tbl, await buildWorkbook(tbl.labels, tbl.columns, tbl.header));
+    const workbook = workbooks.get(tbl);
+    const rowCount = tbl.labels.length + 1;
     const path = chartPaths[i];
     const file = path && zip.file(path);
     if (!file) continue;
@@ -358,7 +364,7 @@ function addComboChart(pptx, slide, { name, labels, values, color, barColor, ...
 }
 
 /** Tambahkan slide Trend Weekly ke deck `pptx` yang sudah ada. Mengembalikan { chartSpecs, table } untuk injectDataLabels. */
-export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], fromWeek, toWeek, logoData }) {
+export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows = [], fromWeek, toWeek, logoData }) {
   const allRows = rows.slice().sort((a, b) => a.key.localeCompare(b.key));
   const selected = allRows.filter((row) => row.key >= fromWeek && row.key <= toWeek);
   if (!selected.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
@@ -381,6 +387,27 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], fromWeek, t
   const lastTotal = total[total.length - 1];
   const extremeIncreases = analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, [selected[selected.length - 1].key]);
   const increaseSummary = buildExtremeIncreaseSummary(extremeIncreases);
+
+  // Trend daily di minggu terakhir yang dipilih (grafik kanan kartu Area + 3 kartu regional).
+  const lastKey = selected[selected.length - 1].key;
+  const dailyLast = (dailyRows || [])
+    .filter((r) => r.date && getPeriodBucket(r.date, 'weekly').key === lastKey)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!dailyLast.length) throw new Error(`Data harian ${lastLabel} tidak tersedia untuk grafik trend daily.`);
+  const dailyLabels = dailyLast.map((r) => formatDayMonth(r.date));
+  const dailyByRegion = Object.fromEntries(
+    REGIONS.map((region) => [region, dailyLast.map((r) => Number(r[region]) || 0)])
+  );
+  const dailyTotal = dailyLast.map((_, i) => REGIONS.reduce((sum, region) => sum + dailyByRegion[region][i], 0));
+  const dailyTable = {
+    header: 'Tanggal',
+    labels: dailyLabels,
+    columns: [
+      ...REGIONS.map((region) => ({ name: region, values: dailyByRegion[region] })),
+      { name: AREA_LABEL, values: dailyTotal },
+    ],
+  };
 
   const slide = pptx.addSlide();
   slide.background = { color: 'FFFFFF' };
@@ -424,11 +451,28 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], fromWeek, t
   });
   addBadge(slide, buildDelta(lastTotal, prevTotal, prevRow?.label, true), 0.89, 2.51, 2.75, 'Total Badge');
 
-  // chart1.xml = total
+  // Judul kecil di atas masing-masing grafik kartu Area
+  slide.addText(`Trend Weekly ${rangeText}`, {
+    x: 3.78, y: 1.02, w: 4.8, h: 0.22, margin: 0,
+    fontFace: FONT, fontSize: 10, bold: true, color: C.muted,
+    isTextBox: true, objectName: 'Judul Chart Weekly',
+  });
+  slide.addText(`Trend Daily ${lastLabel}`, {
+    x: 8.85, y: 1.02, w: 3.6, h: 0.22, margin: 0,
+    fontFace: FONT, fontSize: 10, bold: true, color: C.muted,
+    isTextBox: true, objectName: 'Judul Chart Daily',
+  });
+  slide.addShape(pptx.ShapeType.line, {
+    x: 8.72, y: 1.08, w: 0, h: 2.38,
+    line: { color: C.cardLine, width: 0.75 },
+    objectName: 'Pemisah Chart',
+  });
+
+  // chart1.xml = total weekly (rentang terpilih)
   const chartSpecs = [];
   addComboChart(pptx, slide, {
     name: AREA_LABEL, labels, values: total, color: C.totalLine, barColor: C.totalLine,
-    x: 3.71, y: 1.06, w: 8.76, h: 2.53, max: Math.max(...total) * 1.22 || 10, skip: 1,
+    x: 3.71, y: 1.26, w: 4.95, h: 2.33, max: Math.max(...total) * 1.22 || 10, skip: 1,
   });
   chartSpecs.push({
     col: REGIONS.length,
@@ -438,7 +482,24 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], fromWeek, t
     barColor: C.totalLine,
     indexes: pickLabelIndexes(total, { first: true, mid: true }),
     format: (label, value) => `${label}: ${fmt(value)}`,
-    style: { size: 1200, bold: true, color: C.ink, fill: null },
+    style: { size: 1000, bold: true, color: C.ink, fill: null },
+  });
+
+  // chart2.xml = total daily (minggu terakhir)
+  addComboChart(pptx, slide, {
+    name: AREA_LABEL, labels: dailyLabels, values: dailyTotal, color: C.totalLine, barColor: C.totalLine,
+    x: 8.75, y: 1.26, w: 3.8, h: 2.33, max: Math.max(...dailyTotal) * 1.22 || 10, skip: 1,
+  });
+  chartSpecs.push({
+    col: REGIONS.length,
+    table: dailyTable,
+    labels: dailyLabels,
+    values: dailyTotal,
+    color: C.totalLine,
+    barColor: C.totalLine,
+    indexes: pickLabelIndexes(dailyTotal, { first: true }),
+    format: (label, value) => fmt(value),
+    style: { size: 1000, bold: true, color: C.ink, fill: null },
   });
 
   // ---- Tiga kartu bawah: per regional (chart2..4)
@@ -448,7 +509,8 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], fromWeek, t
   const cardH = 3.02;
   REGIONS.forEach((region, i) => {
     const x = cardXs[i];
-    const values = byRegion[region];
+    const values = dailyByRegion[region]; // trend daily minggu terakhir
+    const weeklyValues = byRegion[region];
     const lowest = Math.min(...values);
     const highest = Math.max(...values);
     const regionalRange = {
@@ -456,7 +518,7 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], fromWeek, t
       max: Math.floor(highest / 5) * 5 + 5,
     };
     const style = REGION_STYLE[region] || FALLBACK_STYLE;
-    const lastValue = values[values.length - 1];
+    const lastValue = weeklyValues[weeklyValues.length - 1]; // rata-rata minggu terakhir (utk angka & selisih)
 
     slide.addShape(pptx.ShapeType.roundRect, {
       x, y: cardY, w: cardW, h: cardH, rectRadius: 0.08,
@@ -473,24 +535,25 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], fromWeek, t
       fontFace: FONT, fontSize: 16, bold: true, color: C.ink, align: 'right',
       isTextBox: true, objectName: `${region} Angka`,
     });
-    slide.addText(`Cell down ${rangeText}`, {
+    slide.addText(`Trend daily ${lastLabel}`, {
       x: x + 0.2, y: cardY + 0.47, w: 1.6, h: 0.24, margin: 0,
       fontFace: FONT, fontSize: 10, color: C.muted,
       isTextBox: true, objectName: `${region} Periode`,
     });
     addBadge(
       slide,
-      buildDelta(lastValue, prevValues?.[region], prevRow?.label),
+      buildDelta(lastValue, prevValues?.[region], prevRow?.label, false, 'Ticket'),
       x + 1.78, cardY + 0.5, cardW - 1.98, `${region} Badge`
     );
 
     addComboChart(pptx, slide, {
-      name: region, labels, values, color: style.line, barColor: style.bar,
+      name: region, labels: dailyLabels, values, color: style.line, barColor: style.bar,
       x, y: cardY + 0.82, w: cardW, h: 2.14, ...regionalRange, skip: 1, showYAxis: true,
     });
     chartSpecs.push({
       col: i,
-      labels,
+      table: dailyTable,
+      labels: dailyLabels,
       values,
       color: style.line,
       barColor: style.bar,
@@ -522,14 +585,14 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], fromWeek, t
   return { chartSpecs, table };
 }
 
-export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], fromWeek, toWeek, logoData }) {
+export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], dailyRows = [], fromWeek, toWeek, logoData }) {
   const pptx = new pptxgen();
   pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
   pptx.author = 'CDS Monitoring';
   pptx.subject = `Trend Weekly Cell Down ${AREA_LABEL}`;
   pptx.title = `Trend Weekly Cell Down ${AREA_LABEL}`;
   pptx.theme = { headFontFace: TITLE_FONT, bodyFontFace: FONT, lang: 'id-ID' };
-  const { chartSpecs, table } = addWeeklyTrendSlide(pptx, { rows, dailyNopRows, fromWeek, toWeek, logoData });
+  const { chartSpecs, table } = addWeeklyTrendSlide(pptx, { rows, dailyNopRows, dailyRows, fromWeek, toWeek, logoData });
   const buffer = await pptx.write({ outputType: 'arraybuffer' });
   const zip = await JSZip.loadAsync(buffer);
   await injectDataLabels(zip, await getSlideChartPaths(zip, 1), chartSpecs, table);
@@ -553,12 +616,12 @@ async function loadLogoDataUrl() {
   }
 }
 
-export async function exportWeeklyTrendPpt({ rows, dailyNopRows, fromWeek, toWeek, fileName }) {
+export async function exportWeeklyTrendPpt({ rows, dailyNopRows, dailyRows, fromWeek, toWeek, fileName }) {
   const selected = rows.filter((row) => row.key >= fromWeek && row.key <= toWeek);
   if (!selected.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
 
   const logoData = await loadLogoDataUrl();
-  const buffer = await buildWeeklyTrendPptx({ rows, dailyNopRows, fromWeek, toWeek, logoData });
+  const buffer = await buildWeeklyTrendPptx({ rows, dailyNopRows, dailyRows, fromWeek, toWeek, logoData });
 
   const first = selected[0].label;
   const last = selected[selected.length - 1].label;

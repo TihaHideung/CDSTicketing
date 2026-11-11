@@ -1,6 +1,13 @@
 import * as XLSX from 'xlsx'
-import { DONE_RANK, nopKey, normalizeCategory, priorityRank } from './easReport.js'
-import { toISODate } from './parseManualValidation.js'
+import {
+  BUCKETS,
+  DONE_RANK,
+  bucketOfRank,
+  nopKey,
+  normalizeCategory,
+  normalizeRegional,
+  priorityRank,
+} from './easReport.js'
 
 // Opsi hemat memori/waktu: hanya nilai sel yang dibutuhkan (tanpa rumus, style, teks format).
 const LEAN_READ = { dense: true, cellFormula: false, cellHTML: false, cellStyles: false, cellNF: false, cellText: false }
@@ -14,11 +21,12 @@ function findHeader(rows) {
     const idx = {
       site: cells.indexOf('SITE ID'),
       kat: cells.indexOf('KATEGORI SITE'),
-      drev: cells.indexOf('DATE REVISI'),
-      final: cells.findIndex((c) => c.startsWith('FINAL PRIORITY')),
+      area: cells.indexOf('AREA'),
+      regional: cells.indexOf('REGIONAL'),
       nop: cells.findIndex((c) => c === 'NOP' || c === 'NOP_NAME'),
+      final: cells.findIndex((c) => c.startsWith('FINAL PRIORITY')),
     }
-    if (idx.site >= 0 && idx.kat >= 0 && idx.drev >= 0 && idx.final >= 0) {
+    if (idx.site >= 0 && idx.kat >= 0 && idx.nop >= 0 && idx.final >= 0) {
       return { headerRow: r, idx, finalHeader: (rows[r][idx.final] ?? '').toString() }
     }
   }
@@ -26,17 +34,20 @@ function findHeader(rows) {
 }
 
 /**
- * "Upload Data Streamlit" = file EAS_Detail_Site_All (sheet "Detail Site") -> bahan ACH VALIDASI.
- * Yang diambil: site dengan Date Revisi = H-1 yang Final Priority-nya sudah "Done".
- * Prioritas awal site-site itu (sebelum berubah ke Done) dicari di baseline tersimpan lewat computeAch().
+ * "Upload Data Streamlit" = file EAS_Detail_Site_All (sheet "Detail Site") -> BASELINE.
+ * Dasar melihat prioritas tiap site: Final Priority yang masih terbuka (P1..P7) = baseline,
+ * dihitung per NOP, kategori (Extended/Quickwin), dan P1 / P2-P5 / P6 / P7.
+ * Total site per NOP & kategori = semua site Area 1 di file (Done + terbuka).
  *
- * Site ID dicocokkan bersama kategorinya. Site yang punya beberapa baris di kategori yang sama
- * (mis. prioritas P3+P7 dipecah jadi 2 baris) dianggap Done hanya kalau semua barisnya Done.
+ * Daftar Site ID yang terbuka ikut dikembalikan (`sites`) dan disimpan, karena upload berikutnya
+ * memakainya untuk tahu prioritas awal site yang berubah ke Done (Ach Validasi).
+ *
+ * Satu site (Site ID + kategori) dihitung sekali. Kalau ada baris ganda, yang masih terbuka
+ * (rank terkecil) menang atas "Done".
  *
  * @param buffer ArrayBuffer isi file .xlsx
- * @param revisiDateISO  tanggal Date Revisi yang dicari (H-1), format YYYY-MM-DD
  */
-export function parseEasDetail(buffer, { revisiDateISO }) {
+export function parseEasDetail(buffer, { areaLabel = 'Area 1' } = {}) {
   const names = XLSX.read(buffer, { type: 'array', bookSheets: true }).SheetNames
   const sheetName =
     names.find((n) => up(n) === 'DETAIL SITE') || names.find((n) => up(n).includes('DETAIL')) || names[0]
@@ -46,52 +57,68 @@ export function parseEasDetail(buffer, { revisiDateISO }) {
   const found = findHeader(rows)
   if (!found) {
     throw new Error(
-      'File Upload Data Streamlit tidak dikenali: kolom Site ID, Kategori Site, Date Revisi, dan Final Priority tidak ditemukan di sheet "Detail Site".'
+      'File Upload Data Streamlit tidak dikenali: kolom Site ID, Kategori Site, NOP, dan Final Priority tidak ditemukan di sheet "Detail Site".'
     )
   }
   const { headerRow, idx, finalHeader } = found
+  const wantedArea = up(areaLabel)
 
-  const sites = new Map() // `${siteId}|${cat}` -> { rank, date }
+  const sites = new Map() // `${siteId}|${cat}` -> { rank, nop, regional, cat }
+  let unknown = 0
   for (let r = headerRow + 1; r < rows.length; r++) {
     const row = rows[r]
     if (!row) continue
     const siteId = up(row[idx.site])
     if (!siteId) continue
+    if (idx.area >= 0 && up(row[idx.area]) !== wantedArea) continue
     const cat = normalizeCategory(row[idx.kat])
+    const nop = nopKey(row[idx.nop])
+    if (!cat || !nop) continue
     const rank = priorityRank(row[idx.final])
-    if (!cat || rank == null) continue
-    const date = toISODate(row[idx.drev])
+    if (rank == null) {
+      unknown += 1 // Final Priority kosong / tidak dikenal: tidak dihitung
+      continue
+    }
     const key = `${siteId}|${cat}`
     const prev = sites.get(key)
-    if (!prev) sites.set(key, { siteId, cat, rank, date })
-    else {
-      if (rank < prev.rank) prev.rank = rank
-      if (!prev.date && date) prev.date = date
+    if (!prev) {
+      sites.set(key, { siteId, rank, nop, cat, regional: idx.regional >= 0 ? normalizeRegional(row[idx.regional]) : '' })
+    } else if (rank < prev.rank) {
+      prev.rank = rank
     }
   }
-  if (!sites.size) throw new Error('Tidak ada baris site yang valid di file Upload Data Streamlit.')
+  if (!sites.size) throw new Error('Tidak ada site Area 1 yang valid di file Upload Data Streamlit.')
 
-  const revisedDone = []
-  let revisedTotal = 0
-  const doneDates = {}
+  const byNop = new Map()
+  const openSites = {} // disimpan: { [nopKey]: { nop, regional, extended: { "1": [ids] }, quickwin } }
+  let open = 0
   for (const s of sites.values()) {
-    if (s.date === revisiDateISO) {
-      revisedTotal += 1
-      if (s.rank === DONE_RANK) revisedDone.push({ site: s.siteId, cat: s.cat })
+    if (!byNop.has(s.nop)) {
+      byNop.set(s.nop, {
+        nop: s.nop,
+        regional: s.regional,
+        extended: { total: 0, notDone: Object.fromEntries(BUCKETS.map((b) => [b, 0])) },
+        quickwin: { total: 0, notDone: Object.fromEntries(BUCKETS.map((b) => [b, 0])) },
+      })
     }
-    if (s.rank === DONE_RANK && s.date) doneDates[s.date] = (doneDates[s.date] || 0) + 1
+    const n = byNop.get(s.nop)
+    if (!n.regional && s.regional) n.regional = s.regional
+    n[s.cat].total += 1
+    if (s.rank !== DONE_RANK) {
+      const bucket = bucketOfRank(s.rank)
+      if (!bucket) continue
+      n[s.cat].notDone[bucket] += 1
+      open += 1
+      const o = (openSites[s.nop] ||= { nop: s.nop, regional: n.regional, extended: {}, quickwin: {} })
+      ;(o[s.cat][s.rank] ||= []).push(s.siteId)
+    }
   }
 
   const label = finalHeader.match(/per\s+(.+?)\)?\s*$/i)?.[1]?.replace(/\)$/, '') || ''
   return {
-    revisedDone, // [{ site, cat }] -> masuk computeAch()
-    revisedTotal, // semua site ber-Date Revisi H-1 (Done maupun belum)
-    // beberapa tanggal Date Revisi terakhir (yang sudah Done) di file, untuk petunjuk kalau H-1 kosong
-    availableDates: Object.keys(doneDates)
-      .sort()
-      .slice(-4)
-      .map((dateISO) => ({ dateISO, count: doneDates[dateISO] })),
-    snapshotLabel: label, // mis. "03-11-2026 09:37"
-    stats: { uniqueSites: sites.size },
+    nops: [...byNop.values()],
+    sites: openSites,
+    snapshotLabel: label, // mis. "06-11-2026 10:25"
+    stats: { sites: sites.size, open, done: sites.size - open, unknown },
   }
 }

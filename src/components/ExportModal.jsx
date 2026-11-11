@@ -153,7 +153,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               <span className="font-medium">Weekly Huddle (.pptx)</span>
             </Check>
             <p className="ml-6 mt-1 text-xs text-slate-400">
-              Satu file, tiga slide: (1) Profiling KPI SON L1 &amp; SOMSA L0, (2) Trend Weekly Availability Area 1 &amp; Regional, dan (3) Trend Weekly Cell Down Area 1 &amp; Regional.
+              Satu file, empat slide: (1) Profiling KPI SON L1 &amp; SOMSA L0, (2) Trend Weekly Availability Area 1 &amp; Regional, (3) Trend Weekly Cell Down Area 1 &amp; Regional, dan (4) EAS Validation Area 1 (minggu terakhir Slide 3).
             </p>
             {weeklyHuddle && (
               <div className="ml-6 mt-3 space-y-3 border-t border-slate-100 pt-3">

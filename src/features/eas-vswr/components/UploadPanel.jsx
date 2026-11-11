@@ -68,17 +68,17 @@ export default function UploadPanel({
 
       <div className="dropzones dropzones--three">
         <DropZone
-          label="File EAS"
-          hint="Manual Validation (Site_List) → Baseline"
-          file={easFile}
-          onFile={onEasFile}
+          label="Upload Data Streamlit"
+          hint="EAS_Detail_Site_All → Baseline (prioritas site)"
+          file={detailFile}
+          onFile={onDetailFile}
           accent="#2952A3"
         />
         <DropZone
-          label="Upload Data Streamlit"
-          hint="EAS_Detail_Site_All → Ach Validasi"
-          file={detailFile}
-          onFile={onDetailFile}
+          label="File EAS"
+          hint="Manual Validation (Site_List) → Ach Validasi"
+          file={easFile}
+          onFile={onEasFile}
           accent="#2952A3"
         />
         <DropZone
@@ -93,7 +93,7 @@ export default function UploadPanel({
       <p className={`upload-hint ${easPairIncomplete ? 'upload-hint--warn' : ''}`}>
         {easPairIncomplete
           ? 'File EAS dan Upload Data Streamlit harus diupload bersamaan.'
-          : 'File EAS menyimpan Baseline, Upload Data Streamlit mengisi Ach Validasi. Keduanya diupload bersamaan; File VSWR boleh terpisah.'}
+          : 'Upload Data Streamlit menjadi Baseline, File EAS (Manual Validation) mengisi Ach Validasi. Keduanya diupload bersamaan; File VSWR boleh terpisah.'}
       </p>
 
       <div className="fields">
