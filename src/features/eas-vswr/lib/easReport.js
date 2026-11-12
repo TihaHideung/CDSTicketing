@@ -8,7 +8,7 @@
 //   Ach Total                      : Baseline (total site) | Done | Ach% | Sisa Target
 //
 // Alur harian (urutan penting):
-//   1. ACH VALIDASI dulu: site yang Date Revisi-nya H-1 dan sudah Done di File EAS dicocokkan dengan
+//   1. ACH VALIDASI dulu: site yang Date Revisi-nya H-1 di File EAS (terisi = sudah dikerjakan) dicocokkan dengan
 //      BASELINE TERAKHIR yang tersimpan (upload sebelumnya) untuk tahu prioritasnya SEBELUM berubah ke Done.
 //   2. Setelah itu BASELINE diperbarui dari Upload Data Streamlit hari ini (site yang masih terbuka per Final Priority)
 //      dan disimpan untuk dipakai upload berikutnya.
@@ -132,7 +132,7 @@ export function indexBaselineSites(easSites) {
 }
 
 /**
- * ACH VALIDASI: untuk tiap site yang sudah Done di File EAS dan Date Revisi-nya H-1, cari
+ * ACH VALIDASI: untuk tiap site yang Date Revisi-nya H-1 di File EAS (terisi = dikerjakan = Ach), cari
  * prioritasnya di baseline TERAKHIR yang tersimpan (sebelum berubah ke Done).
  * Site yang tidak ada di baseline itu (mis. sudah Done sejak lama) dilewati.
  *

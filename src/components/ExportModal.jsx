@@ -24,7 +24,7 @@ function Check({ checked, onChange, disabled, children, className = '' }) {
  * `getReportWeeks()` mengembalikan daftar minggu yang punya data: [{ key, label }] (terbaru dulu).
  * Komponen ini di-mount hanya saat dibuka, jadi pilihan selalu mulai dari default.
  */
-export default function ExportModal({ onClose, onConfirm, exporting, error, getReportWeeks, getWeeklyTrendWeeks, availabilityWeeks = [], availabilityWeeksLoading = false, availabilityWeeksError = '', kpiMonths = [], kpiMonthsLoading = false, kpiMonthsError = '' }) {
+export default function ExportModal({ onClose, onConfirm, exporting, error, getReportWeeks, getWeeklyTrendWeeks, availabilityWeeks = [], availabilityWeeksLoading = false, availabilityWeeksError = '', easWeeks = [], easWeeksLoading = false, easWeeksError = '', kpiMonths = [], kpiMonthsLoading = false, kpiMonthsError = '' }) {
   const [excel, setExcel] = useState(false);
   const [uploadDateFrom, setUploadDateFrom] = useState('');
   const [uploadDateTo, setUploadDateTo] = useState('');
@@ -35,6 +35,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const [weekToState, setWeekToState] = useState(null);
   const [availabilityFromState, setAvailabilityFromState] = useState(null);
   const [availabilityToState, setAvailabilityToState] = useState(null);
+  const [easWeekState, setEasWeekState] = useState(null);
   const [kpiMonthToState, setKpiMonthToState] = useState(null);
 
   const periodOptions = useMemo(() => (getReportWeeks ? getReportWeeks() : []), [getReportWeeks]);
@@ -48,11 +49,13 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
   const availabilityFrom = availabilityWeeks.some((option) => option.key === availabilityFromState) ? availabilityFromState : availabilityWeeks[0]?.key || null;
   const availabilityTo = availabilityWeeks.some((option) => option.key === availabilityToState) ? availabilityToState : availabilityWeeks.at(-1)?.key || null;
   const kpiMonthTo = kpiMonths.some((option) => option.key === kpiMonthToState) ? kpiMonthToState : kpiMonths.at(-1)?.key || null;
+  const easWeek = easWeeks.some((option) => option.key === easWeekState) ? easWeekState : easWeeks[0]?.key || null;
+  const easReady = Boolean(easWeek);
   const kpiReady = Boolean(kpiMonthTo);
   const availabilityReady = Boolean(availabilityFrom && availabilityTo && Number(availabilityFrom) <= Number(availabilityTo));
 
   const uploadDateInvalid = excel && (!uploadDateFrom || !uploadDateTo || uploadDateFrom > uploadDateTo);
-  const huddleReady = weeklyReady && availabilityReady && !availabilityWeeksLoading && kpiReady && !kpiMonthsLoading;
+  const huddleReady = weeklyReady && availabilityReady && !availabilityWeeksLoading && kpiReady && !kpiMonthsLoading && easReady && !easWeeksLoading;
   const canExport = !exporting && !uploadDateInvalid && (excel || (reportPpt && reportReady) || (weeklyHuddle && huddleReady)) && !(reportPpt && !reportReady) && !(weeklyHuddle && !huddleReady);
 
   return (
@@ -153,7 +156,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
               <span className="font-medium">Weekly Huddle (.pptx)</span>
             </Check>
             <p className="ml-6 mt-1 text-xs text-slate-400">
-              Satu file, empat slide: (1) Profiling KPI SON L1 &amp; SOMSA L0, (2) Trend Weekly Availability Area 1 &amp; Regional, (3) Trend Weekly Cell Down Area 1 &amp; Regional, dan (4) EAS Validation Area 1 (minggu terakhir Slide 3).
+              Satu file, lima slide: (1) Profiling KPI SON L1 &amp; SOMSA L0, (2) Trend Weekly Availability Area 1 &amp; Regional, (3) Trend Weekly Cell Down Area 1 &amp; Regional, (4) EAS Validation Area 1, dan (5) VSWR Area 1 (keduanya satu pilihan minggu).
             </p>
             {weeklyHuddle && (
               <div className="ml-6 mt-3 space-y-3 border-t border-slate-100 pt-3">
@@ -243,6 +246,27 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
                   )}
                   <p className="mt-1 text-[11px] text-slate-400">Mengikuti filter Dashboard yang aktif.</p>
                 </div>
+
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-slate-700">Slide 4 &amp; 5 - EAS Validation &amp; VSWR</p>
+                  <label className="block text-xs font-medium text-slate-600 sm:max-w-[70%]">
+                    Minggu
+                    <select
+                      value={easWeek || ''}
+                      onChange={(event) => setEasWeekState(event.target.value)}
+                      disabled={exporting || easWeeksLoading || !easWeeks.length}
+                      className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-normal text-slate-700 disabled:bg-slate-50"
+                    >
+                      {easWeeks.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  {easWeeksLoading && <p className="mt-1 text-[11px] text-slate-500">Memuat minggu EAS &amp; VSWR...</p>}
+                  {!easWeeksLoading && easWeeksError && <p className="mt-1 text-[11px] text-red-500">{easWeeksError}</p>}
+                  {!easWeeksLoading && !easWeeksError && !easWeeks.length && (
+                    <p className="mt-1 text-[11px] text-red-500">Belum ada minggu yang punya data EAS dan VSWR (upload di menu EAS &amp; VSWR).</p>
+                  )}
+                  <p className="mt-1 text-[11px] text-slate-400">Minggu = Jumat s/d Kamis. EAS: progress awal sampai akhir minggu. VSWR: data terakhir di minggu itu. Tidak mengikuti filter Dashboard.</p>
+                </div>
               </div>
             )}
           </div>
@@ -264,7 +288,7 @@ export default function ExportModal({ onClose, onConfirm, exporting, error, getR
           <button
             type="button"
             disabled={!canExport}
-            onClick={() => onConfirm({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, kpiMonthTo, uploadDateFrom, uploadDateTo })}
+            onClick={() => onConfirm({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, kpiMonthTo, easWeek, uploadDateFrom, uploadDateTo })}
             className="rounded-md bg-brand-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {exporting ? 'Mengekspor...' : 'Export'}

@@ -92,3 +92,22 @@ export function normalizeComboXml(xml, line = {}) {
   xml = xml.replace('<c:roundedCorners val="1"/>', '<c:roundedCorners val="0"/>');
   return { xml, barCount: barSers.length, lineIdx };
 }
+
+// Header + footer standar Weekly Huddle (sama persis dengan slide Profiling KPI dan Trend Weekly Availability):
+// bar header peach + aksen oranye di kiri, judul & subjudul, logo di kanan, dan bar merah di footer.
+const HEADER = { bg: 'FDEFE6', accent: 'F26B1D', titleInk: '4A1408', subtitleInk: '3A2A20', footer: 'B8261A', font: 'Poppins' };
+
+export function addStandardHeaderFooter(pptx, slide, { title, subtitle, logoData }) {
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.333, h: 0.75, fill: { color: HEADER.bg }, line: { color: HEADER.bg, width: 0 }, objectName: 'Header' });
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 0.11, h: 0.75, fill: { color: HEADER.accent }, line: { color: HEADER.accent, width: 0 }, objectName: 'Header Accent' });
+  slide.addText(title, {
+    x: 0.3, y: 0.06, w: 8.5, h: 0.37, margin: 0,
+    fontFace: HEADER.font, fontSize: 20, bold: true, color: HEADER.titleInk, valign: 'middle', isTextBox: true, objectName: 'Judul',
+  });
+  slide.addText(subtitle, {
+    x: 0.32, y: 0.41, w: 9.5, h: 0.24, margin: 0,
+    fontFace: HEADER.font, fontSize: 15, color: HEADER.subtitleInk, valign: 'middle', isTextBox: true, objectName: 'Subjudul',
+  });
+  if (logoData) slide.addImage({ data: logoData, x: 10.64, y: 0.14, w: 2.53, h: 0.575, objectName: 'Logo' });
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 7.36, w: 13.333, h: 0.14, fill: { color: HEADER.footer }, line: { color: HEADER.footer, width: 0 }, objectName: 'Footer' });
+}

@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import { DONE_RANK, normalizeCategory, priorityRank } from './easReport.js'
+import { normalizeCategory } from './easReport.js'
 
 // Opsi hemat memori/waktu: hanya nilai sel yang dibutuhkan (tanpa rumus, style, teks format).
 const LEAN_READ = { dense: true, cellFormula: false, cellHTML: false, cellStyles: false, cellNF: false, cellText: false }
@@ -36,21 +36,20 @@ function findHeader(rows) {
       area: cells.indexOf('AREA'),
       kat: cells.indexOf('KATEGORI SITE'),
       drev: cells.indexOf('DATE REVISI'),
-      final: cells.indexOf('FINAL PRIORITY'),
     }
-    if (idx.site >= 0 && idx.kat >= 0 && idx.drev >= 0 && idx.final >= 0) return { headerRow: r, idx }
+    if (idx.site >= 0 && idx.kat >= 0 && idx.drev >= 0) return { headerRow: r, idx }
   }
   return null
 }
 
 /**
  * "File EAS" = Manual Validation, sheet "Site_List" -> bahan ACH VALIDASI.
- * Yang diambil: site Area 1 dengan Date Revisi = H-1 yang Final Priority-nya sudah "Done".
- * Prioritas awal site-site itu (sebelum berubah ke Done) dicari di baseline tersimpan
- * (dari Upload Data Streamlit sebelumnya) lewat computeAch().
+ * Aturannya sederhana: site Area 1 yang kolom Date Revisi-nya berisi tanggal H-1 dianggap SUDAH
+ * DIKERJAKAN dan dihitung sebagai Ach. Status Final Priority / Done TIDAK dicek.
+ * Prioritas awal site-site itu dicari di baseline tersimpan (dari Upload Data Streamlit
+ * sebelumnya) lewat computeAch().
  *
- * Site ID dicocokkan bersama kategorinya. Site yang punya beberapa baris di kategori yang sama
- * dianggap Done hanya kalau semua barisnya Done.
+ * Site ID dicocokkan bersama kategorinya (satu site per kategori dihitung sekali).
  *
  * @param buffer ArrayBuffer isi file .xlsx
  * @param revisiDateISO  tanggal Date Revisi yang dicari (H-1), format YYYY-MM-DD
@@ -67,12 +66,12 @@ export function parseManualValidation(buffer, { revisiDateISO, areaLabel = 'Area
 
   const found = findHeader(rows)
   if (!found) {
-    throw new Error('Kolom Site ID, Kategori Site, Date Revisi, dan Final Priority tidak ditemukan di sheet Site_List.')
+    throw new Error('Kolom Site ID, Kategori Site, dan Date Revisi tidak ditemukan di sheet Site_List.')
   }
   const { headerRow, idx } = found
   const wantedArea = up(areaLabel)
 
-  const sites = new Map() // `${siteId}|${cat}` -> { rank, date }
+  const sites = new Map() // `${siteId}|${cat}` -> { siteId, cat, date }
   for (let r = headerRow + 1; r < rows.length; r++) {
     const row = rows[r]
     if (!row) continue
@@ -80,38 +79,31 @@ export function parseManualValidation(buffer, { revisiDateISO, areaLabel = 'Area
     if (!siteId) continue
     if (idx.area >= 0 && up(row[idx.area]) !== wantedArea) continue
     const cat = normalizeCategory(row[idx.kat])
-    const rank = priorityRank(row[idx.final])
-    if (!cat || rank == null) continue
+    if (!cat) continue
     const date = toISODate(row[idx.drev])
     const key = `${siteId}|${cat}`
     const prev = sites.get(key)
-    if (!prev) sites.set(key, { siteId, cat, rank, date })
-    else {
-      if (rank < prev.rank) prev.rank = rank
-      if (!prev.date && date) prev.date = date
-    }
+    if (!prev) sites.set(key, { siteId, cat, date })
+    else if (!prev.date && date) prev.date = date
   }
   if (!sites.size) throw new Error('Tidak ada site Area 1 yang valid di sheet Site_List.')
 
-  const revisedDone = []
-  let revisedTotal = 0
-  const doneDates = {}
+  const revisedDone = [] // site ber-Date Revisi H-1 = sudah dikerjakan = Ach
+  const dateCounts = {}
   for (const s of sites.values()) {
-    if (s.date === revisiDateISO) {
-      revisedTotal += 1
-      if (s.rank === DONE_RANK) revisedDone.push({ site: s.siteId, cat: s.cat })
-    }
-    if (s.rank === DONE_RANK && s.date) doneDates[s.date] = (doneDates[s.date] || 0) + 1
+    if (!s.date) continue
+    dateCounts[s.date] = (dateCounts[s.date] || 0) + 1
+    if (s.date === revisiDateISO) revisedDone.push({ site: s.siteId, cat: s.cat })
   }
 
   return {
     revisedDone, // [{ site, cat }] -> masuk computeAch()
-    revisedTotal, // semua site ber-Date Revisi H-1 (Done maupun belum)
-    // beberapa tanggal Date Revisi terakhir (yang sudah Done) di file, untuk petunjuk kalau H-1 kosong
-    availableDates: Object.keys(doneDates)
+    revisedTotal: revisedDone.length,
+    // beberapa tanggal Date Revisi terakhir di file, untuk petunjuk kalau H-1 kosong
+    availableDates: Object.keys(dateCounts)
       .sort()
       .slice(-4)
-      .map((dateISO) => ({ dateISO, count: doneDates[dateISO] })),
+      .map((dateISO) => ({ dateISO, count: dateCounts[dateISO] })),
     stats: { uniqueSites: sites.size },
   }
 }

@@ -1,5 +1,5 @@
 import { BUCKETS, BUCKET_LABELS } from '../features/eas-vswr/lib/easReport.js';
-import { getSlideChartPaths, normalizeComboXml } from './pptxUtils.js';
+import { addStandardHeaderFooter, getSlideChartPaths, normalizeComboXml } from './pptxUtils.js';
 
 /*
  * Slide "EAS Validation | Area 1" untuk Weekly Huddle (header, font, dan kartu disamakan dengan
@@ -17,13 +17,9 @@ import { getSlideChartPaths, normalizeComboXml } from './pptxUtils.js';
  */
 
 const FONT = 'IBM Plex Sans';
-const TITLE_FONT = 'Poppins';
 const AREA_LABEL = 'Area 1';
 
 const C = {
-  topBar: 'BE133E',
-  titleRed: 'BE1540',
-  titleBlue: '012E98',
   card: 'FCFCFA',
   cardLine: 'E1E0D9',
   ink: '14202B',
@@ -251,21 +247,12 @@ export function addEasValidationSlide(pptx, { data, weekLabel, logoData }) {
   const slide = pptx.addSlide();
   slide.background = { color: 'FFFFFF' };
 
-  // Header sama dengan slide Trend Weekly Cell Down
-  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.333, h: 0.14, fill: { color: C.topBar }, line: { color: C.topBar, width: 0 }, objectName: 'Header Bar' });
-  slide.addText(
-    [
-      { text: 'EAS Validation  ', options: { color: C.titleRed } },
-      { text: `| ${AREA_LABEL}  ${weekLabel}`, options: { color: C.titleBlue } },
-    ],
-    { x: 0.1, y: 0.2, w: 9.2, h: 0.4, margin: [0, 0, 0, 0.1], fontFace: TITLE_FONT, fontSize: 18, bold: true, valign: 'middle', isTextBox: true, objectName: 'Judul' }
-  );
-  if (logoData) slide.addImage({ data: logoData, x: 10.64, y: 0.14, w: 2.53, h: 0.575, objectName: 'Logo' });
-
+  // Header + footer sama dengan slide Profiling KPI dan Trend Weekly Availability
   const range = `${dayMonth(data.from)} - ${dayMonth(data.to)}`;
-  slide.addText(`${weekLabel} (${range}, ${data.days} hari data)`, {
-    x: 6.0, y: 0.62, w: 6.65, h: 0.2, margin: 0, align: 'right',
-    fontFace: FONT, fontSize: 9, color: C.muted, isTextBox: true, objectName: 'Periode',
+  addStandardHeaderFooter(pptx, slide, {
+    title: 'EAS Validation',
+    subtitle: `${AREA_LABEL.toUpperCase()} – ${weekLabel} (${range}, ${data.days} hari data)`,
+    logoData,
   });
 
   // ---- Dua tabel: Extended, Quickwin

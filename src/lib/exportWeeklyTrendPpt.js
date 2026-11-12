@@ -418,7 +418,7 @@ function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barL
         data: series.map((s) => ({ name: s.name, labels, values: s.values })),
         options: {
           chartColors: series.map((s) => s.color),
-          barGapWidthPct: 35,
+          barGapWidthPct: 70, // jarak antar hari lebih lebar supaya kelompok batang tidak dempet
           showValue: barLabels,
           dataLabelPosition: 'outEnd',
           dataLabelFontSize: 7,
@@ -454,7 +454,8 @@ function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barL
       catAxisLabelFontFace: FONT,
       catAxisLabelFontSize: 8,
       catAxisLabelColor: C.axis,
-      catGridLine: { style: 'none' },
+      // Garis pemisah vertikal antar hari, supaya jelas batang mana milik tanggal berapa.
+      catGridLine: { color: 'B8BFC8', size: 0.75, style: 'solid' },
       catAxisLineShow: true,
       catAxisLineColor: C.axisLine,
       showBorder: false,

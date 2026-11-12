@@ -77,7 +77,7 @@ export default function EasVswrPage() {
   // bagian yang tidak diupload dipertahankan dari record tanggal itu.
   //
   // Urutan kerja EAS (penting):
-  //   1) ACH VALIDASI dulu: site ber-Date Revisi H-1 yang sudah Done di File EAS (Manual Validation)
+  //   1) ACH VALIDASI dulu: site ber-Date Revisi H-1 di File EAS (Manual Validation; terisi = Ach, status Done tidak dicek)
   //      dicocokkan dengan baseline TERAKHIR yang tersimpan, supaya prioritas sebelum berubah ke Done diketahui.
   //   2) Lalu BASELINE diperbarui dari Upload Data Streamlit hari ini (site yang masih terbuka per
   //      Final Priority) dan disimpan (easSites) untuk upload berikutnya.
@@ -122,7 +122,7 @@ export default function EasVswrPage() {
           revisiDateISO,
           revisiDateLabel: isoToShortLabel(revisiDateISO),
           revisedTotal: manual.revisedTotal, // site ber-Date Revisi H-1 di File EAS
-          revisedDone: manual.revisedDone.length, // ... yang sudah Done
+          revisedDone: manual.revisedDone.length, // sama dengan revisedTotal (terisi = Ach)
           matched: ach.matched, // ... yang prioritas awalnya ditemukan di baseline sebelumnya
           unmatched: ach.unmatched,
           baselineFromDateISO: prev?.dateISO ?? null, // tanggal baseline yang dipakai; null = belum ada

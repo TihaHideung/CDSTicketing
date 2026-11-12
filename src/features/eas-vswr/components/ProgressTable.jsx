@@ -304,13 +304,13 @@ export default function ProgressTable({ table, easReport, easInfo, hasVswr = tru
       ) : (
         <p className={`eas-note ${easInfo.matched ? '' : 'eas-note--warn'}`}>
           Ach Validasi: <strong>{easInfo.matched}</strong> site Date Revisi{' '}
-          <strong>{easInfo.revisiDateLabel}</strong> yang sudah Done di File EAS (Manual Validation), prioritas awalnya dari baseline Streamlit{' '}
+          <strong>{easInfo.revisiDateLabel}</strong> yang terisi di File EAS (Manual Validation) dihitung Ach, prioritas awalnya dari baseline Streamlit{' '}
           {dmy(easInfo.baselineFromDateISO)}.
           {easInfo.unmatched > 0 && <> {easInfo.unmatched} site tidak ada di baseline tersebut (dilewati).</>}
           {!easInfo.matched && easInfo.availableDates?.length > 0 && (
             <>
               {' '}
-              Tanggal Date Revisi (Done) terakhir di file:{' '}
+              Tanggal Date Revisi terakhir di file:{' '}
               {easInfo.availableDates.map((d) => `${dmy(d.dateISO)} (${d.count})`).join(', ')}.
             </>
           )}{' '}

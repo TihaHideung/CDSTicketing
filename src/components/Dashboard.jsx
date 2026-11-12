@@ -52,6 +52,9 @@ export default function Dashboard({
   const [availabilityWeeksLoading, setAvailabilityWeeksLoading] = useState(false);
   const [availabilityWeeksError, setAvailabilityWeeksError] = useState('');
   // Bulan KPI (dari kolom Period) yang tersedia di database untuk slide Profiling KPI.
+  const [easWeeks, setEasWeeks] = useState([]);
+  const [easWeeksLoading, setEasWeeksLoading] = useState(false);
+  const [easWeeksError, setEasWeeksError] = useState('');
   const [kpiMonths, setKpiMonths] = useState([]);
   const [kpiMonthsLoading, setKpiMonthsLoading] = useState(false);
   const [kpiMonthsError, setKpiMonthsError] = useState('');
@@ -114,9 +117,45 @@ export default function Dashboard({
     }
   };
 
+  // Minggu (Jumat-Kamis) yang punya data EAS dan VSWR, terbaru dulu -> pilihan Slide 4 & 5 Weekly Huddle.
+  const loadEasWeeks = async () => {
+    setEasWeeks([]);
+    setEasWeeksError('');
+    setEasWeeksLoading(true);
+    try {
+      const { getEasVswrHistory } = await import('../lib/dbApi.js');
+      const history = await getEasVswrHistory();
+      const weeks = new Map(); // key -> { key, label, eas, vswr }
+      for (const rec of Array.isArray(history) ? history : []) {
+        if (!rec?.dateISO) continue;
+        const hasEas = Boolean(rec.metrics?.easReport?.extended && rec.metrics?.easReport?.quickwin);
+        const hasVswr = Array.isArray(rec.raw?.vswr?.nopRows) && rec.raw.vswr.nopRows.length > 0;
+        if (!hasEas && !hasVswr) continue;
+        const bucket = getPeriodBucket(rec.dateISO, 'weekly');
+        const w = weeks.get(bucket.key) || { key: bucket.key, label: bucket.label, eas: false, vswr: false };
+        w.eas = w.eas || hasEas;
+        w.vswr = w.vswr || hasVswr;
+        weeks.set(bucket.key, w);
+      }
+      const dm = (iso) => new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`));
+      const endOf = (iso) => new Date(Date.parse(`${iso}T00:00:00Z`) + 6 * 86400000).toISOString().slice(0, 10);
+      setEasWeeks(
+        [...weeks.values()]
+          .filter((w) => w.eas && w.vswr)
+          .sort((a, b) => b.key.localeCompare(a.key))
+          .map((w) => ({ key: w.key, label: `${w.label} (${dm(w.key)} - ${dm(endOf(w.key))})` }))
+      );
+    } catch (err) {
+      setEasWeeksError(err?.message || 'Gagal memuat minggu EAS & VSWR.');
+    } finally {
+      setEasWeeksLoading(false);
+    }
+  };
+
   const openExport = async () => {
     setExportError('');
     setShowExport(true);
+    loadEasWeeks();
     setAvailabilityWeeks([]);
     setAvailabilityWeeksError('');
     setAvailabilityWeeksLoading(true);
@@ -161,7 +200,7 @@ export default function Dashboard({
     };
   }, [trendLog, trendCriteria]);
 
-  const handleConfirmExport = async ({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, kpiMonthTo, uploadDateFrom, uploadDateTo }) => {
+  const handleConfirmExport = async ({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, kpiMonthTo, easWeek, uploadDateFrom, uploadDateTo }) => {
     setExporting(true);
     setExportError('');
     try {
@@ -183,7 +222,7 @@ export default function Dashboard({
         });
       }
       if (weeklyHuddle) {
-        // Weekly Huddle = 1 file, 4 slide: Profiling KPI, Trend Weekly Availability, Trend Weekly Cell Down, EAS Validation.
+        // Weekly Huddle = 1 file, 5 slide: Profiling KPI, Trend Weekly Availability, Trend Weekly Cell Down, EAS Validation, VSWR.
         const selectedWeeks = weeklyTrendRows.filter((row) => row.key >= weekFrom && row.key <= weekTo);
         if (!selectedWeeks.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
         const anomalyCriteria = { ...trendCriteria, regionalFilter: ALL_KEY, category: 'CellDown' };
@@ -200,7 +239,7 @@ export default function Dashboard({
           kpi: { rows: await getKpi(), monthTo: Number(kpiMonthTo) },
           trend: { rows: weeklyTrendRows, dailyNopRows, dailyRows, dailyNopByRegion, fromWeek: weekFrom, toWeek: weekTo },
           availability: { rows: await getAvailability(), weekFrom: Number(availabilityFrom), weekTo: Number(availabilityTo) },
-          eas: { history: await getEasVswrHistory() },
+          eas: { history: await getEasVswrHistory(), weekKey: easWeek },
           fileName: `CDS_Monitoring_Weekly_Huddle_${selectedWeeks[0].label}_${selectedWeeks[selectedWeeks.length - 1].label}.pptx`,
         });
       }
@@ -337,6 +376,9 @@ export default function Dashboard({
           availabilityWeeks={availabilityWeeks}
           availabilityWeeksLoading={availabilityWeeksLoading}
           availabilityWeeksError={availabilityWeeksError}
+          easWeeks={easWeeks}
+          easWeeksLoading={easWeeksLoading}
+          easWeeksError={easWeeksError}
           kpiMonths={kpiMonths}
           kpiMonthsLoading={kpiMonthsLoading}
           kpiMonthsError={kpiMonthsError}
