@@ -76,8 +76,13 @@ function addDistributionChart(pptx, slide, dist, type) {
   }));
 
   const pos = POS[type.key];
+  // Legenda digambar manual: urutan dari terbaik ke terburuk (Istimewa, Baik Sekali, Baik, Cukup, Kurang),
+  // sedangkan urutan tumpukan batang tetap. Kategori yang tidak ada di data (mis. Istimewa di SON) tidak ditampilkan.
+  const legendItems = [...KPI_CATEGORIES].reverse().filter((c) => present.includes(c));
+  const LEGEND_H = 0.27;
   slide.addChart(pptx.charts.BAR, data, {
     ...pos.chart,
+    h: pos.chart.h - LEGEND_H,
     barDir: 'col',
     barGrouping: 'percentStacked',
     barGapWidthPct: type.key === 'SON_L1' ? 50 : 70,
@@ -97,14 +102,28 @@ function addDistributionChart(pptx, slide, dist, type) {
     dataLabelFontSize: 9,
     dataLabelFontFace: FONT,
     dataLabelFormatCode: '#;;;', // angka 0 tidak ditampilkan
-    showLegend: true,
-    legendPos: 'b',
-    legendFontFace: FONT,
-    legendFontSize: 9,
-    legendColor: C.axis,
+    showLegend: false,
     showTitle: false,
     objectName: `Chart ${type.label}`,
   });
+
+  const itemW = (name) => 0.1 + 0.06 + name.length * 0.075 + 0.2;
+  const totalW = legendItems.reduce((sum, name) => sum + itemW(name), 0) - 0.2;
+  let lx = pos.chart.x + (pos.chart.w - totalW) / 2;
+  const ly = Math.min(pos.chart.y + pos.chart.h - LEGEND_H + 0.04, 7.36 - 0.24); // tetap di atas footer
+  for (const name of legendItems) {
+    slide.addShape(pptx.ShapeType.rect, {
+      x: lx, y: ly + 0.055, w: 0.1, h: 0.1,
+      fill: { color: KPI_CATEGORY_COLORS[name] }, line: { color: KPI_CATEGORY_COLORS[name], width: 0 },
+      objectName: `Legenda ${type.label} ${name} Warna`,
+    });
+    slide.addText(name, {
+      x: lx + 0.16, y: ly, w: name.length * 0.075 + 0.1, h: 0.21, margin: 0,
+      fontFace: FONT, fontSize: 9, color: C.axis, valign: 'middle', isTextBox: true,
+      objectName: `Legenda ${type.label} ${name}`,
+    });
+    lx += itemW(name);
+  }
 
   slide.addText(type.label, {
     ...pos.label,

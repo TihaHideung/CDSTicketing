@@ -273,6 +273,20 @@ function fixClusterChart(xml, spec) {
   if (spec.rotateBarLabels) {
     out = out.replace(/<c:barChart>[\s\S]*?<\/c:barChart>/, (m) => m.replace(/<a:bodyPr\/>/g, '<a:bodyPr rot="-5400000" vert="horz"/>'));
   }
+  // Warna per titik (per hari) untuk batang yang sudah dipadatkan: satu seri = satu "slot", warna ikut NOP-nya.
+  if (spec.pointColors?.some(Boolean)) {
+    out = out.replace(/<c:barChart>[\s\S]*?<\/c:barChart>/, (bar) => {
+      let n = 0;
+      return bar.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (ser) => {
+        const colors = spec.pointColors[n++];
+        const dPts = (colors || [])
+          .map((hex, d) => (hex ? `<c:dPt><c:idx val="${d}"/><c:invertIfNegative val="0"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="${hex}"/></a:solidFill></c:spPr></c:dPt>` : ''))
+          .join('');
+        if (!dPts) return ser;
+        return ser.includes('<c:dLbls>') ? ser.replace('<c:dLbls>', `${dPts}<c:dLbls>`) : ser.replace('<c:cat>', `${dPts}<c:cat>`);
+      });
+    });
+  }
   // Seri bantu "Total" tidak ikut tampil di legenda.
   out = out.replace(/(<c:legendPos val="\w+"\/>)/, `$1<c:legendEntry><c:idx val="${r.barCount}"/><c:delete val="1"/></c:legendEntry>`);
   return out;
@@ -403,11 +417,60 @@ function addComboChart(pptx, slide, { name, labels, values, color, barColor, ...
   );
 }
 
+// Legenda warna manual (kotak + nama), dibungkus ke beberapa baris dan diratakan tengah.
+function layoutSwatchLegend(items, width) {
+  const itemW = (it) => 0.09 + 0.05 + it.name.length * 0.064 + 0.14;
+  const rows = [[]];
+  let used = 0;
+  for (const it of items) {
+    if (used && used + itemW(it) > width) {
+      rows.push([]);
+      used = 0;
+    }
+    rows[rows.length - 1].push(it);
+    used += itemW(it);
+  }
+  return { rows, itemW, height: rows.length * 0.17 };
+}
+
+function addSwatchLegend(slide, layout, { x, y, w, name }) {
+  layout.rows.forEach((row, r) => {
+    const rowW = row.reduce((sum, it) => sum + layout.itemW(it), 0) - 0.14;
+    let lx = x + (w - rowW) / 2;
+    const ly = y + r * 0.17;
+    for (const it of row) {
+      slide.addShape('rect', { x: lx, y: ly + 0.04, w: 0.09, h: 0.09, fill: { color: it.color }, line: { color: it.color, width: 0 }, objectName: `${name} ${it.name} Warna` });
+      slide.addText(it.name, { x: lx + 0.14, y: ly, w: it.name.length * 0.064 + 0.1, h: 0.17, margin: 0, fontFace: FONT, fontSize: 7.5, color: C.muted, valign: 'middle', wrap: false, isTextBox: true, objectName: `${name} ${it.name}` });
+      lx += layout.itemW(it);
+    }
+  });
+}
+
+// Padatkan batang per NOP: NOP yang tiketnya 0 di suatu hari tidak menyisakan ruang kosong; NOP di sebelahnya
+// maju mengisi, dan kelompok batang tiap hari diratakan di tengah (di atas label tanggal). Satu seri grafik =
+// satu "slot" posisi; warna tiap titik mengikuti NOP yang menempati slot itu pada hari tsb.
+function packNopSlots(series, dayCount) {
+  const perDay = Array.from({ length: dayCount }, (_, d) =>
+    series.map((srs, n) => ({ n, v: srs.values[d] })).filter((o) => o.v > 0)
+  );
+  const slotCount = Math.max(1, ...perDay.map((a) => a.length));
+  const slots = Array.from({ length: slotCount }, (_, k) => ({ name: `Bar ${k + 1}`, values: [], pointColors: [], color: '94A3B8' }));
+  perDay.forEach((items, d) => {
+    const offset = Math.floor((slotCount - items.length) / 2);
+    slots.forEach((slot, k) => {
+      const it = items[k - offset];
+      slot.values.push(it ? it.v : 0);
+      slot.pointColors.push(it ? series[it.n].color : null);
+    });
+  });
+  return slots;
+}
+
 /**
  * Batang berkelompok: tiap hari satu kelompok batang (satu batang per seri), angka total di atasnya.
  * series = [{ name, values, color }], totals = jumlah per hari (untuk label).
  */
-function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barLabels, headroom, pad }) {
+function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barLabels, headroom, pad, gap = 70, legend = true }) {
   const maxBar = labels.map((_, i) => Math.max(0, ...series.map((s) => s.values[i])));
   const axisMax = niceMax(Math.max(...maxBar, 1) * headroom);
   const labelPos = maxBar.map((v) => v + axisMax * pad); // posisi label total (di atas batang tertinggi)
@@ -418,7 +481,7 @@ function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barL
         data: series.map((s) => ({ name: s.name, labels, values: s.values })),
         options: {
           chartColors: series.map((s) => s.color),
-          barGapWidthPct: 70, // jarak antar hari lebih lebar supaya kelompok batang tidak dempet
+          barGapWidthPct: gap, // jarak antar hari (persen dari lebar satu batang)
           showValue: barLabels,
           dataLabelPosition: 'outEnd',
           dataLabelFontSize: 7,
@@ -436,7 +499,7 @@ function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barL
     {
       x, y, w, h,
       showTitle: false,
-      showLegend: true,
+      showLegend: legend,
       legendPos: 'b',
       legendFontFace: FONT,
       legendFontSize: 7.5,
@@ -461,7 +524,7 @@ function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barL
       showBorder: false,
     }
   );
-  return { kind: 'cluster', labels, totals, rotateBarLabels: barLabels };
+  return { kind: 'cluster', labels, totals, rotateBarLabels: barLabels, pointColors: series.map((s) => s.pointColors || null) };
 }
 
 /** Tambahkan slide Trend Weekly ke deck `pptx` yang sudah ada. Mengembalikan { chartSpecs, table } untuk injectDataLabels. */
@@ -579,7 +642,7 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
     series: REGIONS.map((region) => ({ name: region, values: dailyByRegion[region], color: (REGION_STYLE[region] || FALLBACK_STYLE).bar || FALLBACK_STYLE.line })),
     totals: dailyTotal,
     x: 7.66, y: 1.26, w: 5.0, h: 2.33,
-    barLabels: true, headroom: 1.55, pad: 0.2,
+    barLabels: true, headroom: 1.55, pad: 0.2, gap: 100,
   });
   chartSpecs.push(areaCluster);
 
@@ -633,15 +696,19 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
       x + 1.78, cardY + 0.5, cardW - 1.98, `${region} Badge`
     );
 
+    // Legenda NOP digambar manual (warna mengikuti NOP, bukan seri grafik yang sudah dipadatkan).
+    const legendLayout = layoutSwatchLegend(series.map((srs) => ({ name: srs.name, color: srs.color })), cardW - 0.4);
+    const chartH = 2.16 - legendLayout.height - 0.04;
     chartSpecs.push(
       addClusterChart(pptx, slide, {
         labels: dailyLabels,
-        series,
+        series: packNopSlots(series, dailyLast.length),
         totals,
-        x: x + 0.02, y: cardY + 0.82, w: cardW - 0.04, h: 2.16,
-        barLabels: false, headroom: 1.22, pad: 0.07,
+        x: x + 0.02, y: cardY + 0.82, w: cardW - 0.04, h: chartH,
+        barLabels: false, headroom: 1.22, pad: 0.07, gap: 150, legend: false,
       })
     );
+    addSwatchLegend(slide, legendLayout, { x: x + 0.2, y: cardY + 0.82 + chartH + 0.04, w: cardW - 0.4, name: `${region} Legenda` });
   });
 
   if (increaseSummary) {
