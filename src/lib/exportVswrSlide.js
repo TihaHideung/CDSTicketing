@@ -59,13 +59,26 @@ const hasVswr = (r) => Array.isArray(r?.raw?.vswr?.nopRows) && r.raw.vswr.nopRow
  * @returns null kalau minggu itu tidak punya data VSWR.
  */
 export function buildVswrWeekData(history, weekKey) {
+  const prevKey = addDaysISO(weekKey, -7);
+  return buildVswrPeriodData(history, {
+    from: weekKey,
+    to: addDaysISO(weekKey, 6),
+    prevFrom: prevKey,
+    prevTo: addDaysISO(weekKey, -1),
+    prevLabel: getPeriodBucket(prevKey, 'weekly').label,
+  });
+}
+
+/**
+ * Data slide VSWR untuk periode [from, to] dan periode pembanding [prevFrom, prevTo]
+ * (minggu atau bulan). Yang dipakai = record VSWR TERAKHIR di masing-masing periode.
+ */
+export function buildVswrPeriodData(history, { from: weekKey, to: weekEnd, prevFrom, prevTo, prevLabel }) {
   const inRange = (r, from, to) => r?.dateISO >= from && r.dateISO <= to && hasVswr(r);
-  const weekEnd = addDaysISO(weekKey, 6);
   const sorted = (history || []).slice().sort((a, b) => a.dateISO.localeCompare(b.dateISO));
   const cur = sorted.filter((r) => inRange(r, weekKey, weekEnd)).pop();
   if (!cur) return null;
-  const prevKey = addDaysISO(weekKey, -7);
-  const prev = sorted.filter((r) => inRange(r, prevKey, addDaysISO(weekKey, -1))).pop() || null;
+  const prev = sorted.filter((r) => inRange(r, prevFrom, prevTo)).pop() || null;
 
   const v = cur.raw.vswr;
   const regionalOrder = [];
@@ -92,7 +105,6 @@ export function buildVswrWeekData(history, weekKey) {
   const grand = v.grandTotal;
   const prevV = prev?.raw?.vswr;
   const prevClosedOf = (regional) => totalOf(prevV?.regionalTotals, regional)?.closedTotal;
-  const prevLabel = getPeriodBucket(prevKey, 'weekly').label;
 
   const regionals = groups.map((g) => {
     const prevClosed = prevV ? prevClosedOf(g.regional) ?? null : null;
@@ -251,7 +263,8 @@ function addSummary(pptx, slide, { data, weekLabel, x, y, w }) {
   const s = data.summary;
   const tableRows = s.regionals.length + 2; // header + tiap regional + baris Area
   const tableY = y + 1.2;
-  const tableEnd = tableY + 0.22 * tableRows;
+  const HEAD_H = 0.34; // header 2 baris (mis. "Closed" / "Sep 2026")
+  const tableEnd = tableY + HEAD_H + 0.22 * (tableRows - 1);
   slide.addShape(pptx.ShapeType.roundRect, {
     x, y, w, h: tableEnd + 0.32 - y, rectRadius: 0.08,
     fill: { color: C.card }, line: { color: C.cardLine, width: 0.75 }, objectName: 'Kartu Summary',
@@ -287,7 +300,7 @@ function addSummary(pptx, slide, { data, weekLabel, x, y, w }) {
 
   // Rincian per regional + pembanding closed vs minggu sebelumnya
   const base = { fontFace: FONT, fontSize: 8, color: C.ink, border: BORDER };
-  const head = (t) => cell(t, { ...base, bold: true, color: C.white, fill: { color: C.navy } });
+  const head = (t) => cell(t, { ...base, fontSize: 7.5, bold: true, color: C.white, fill: { color: C.navy } });
   const prev = data.prevLabel;
   const deltaCell = (d, o = {}) =>
     d == null
@@ -315,10 +328,10 @@ function addSummary(pptx, slide, { data, weekLabel, x, y, w }) {
     ],
   ];
   const tw = w - 0.3;
-  const colW = [0.95, ...Array(6).fill((tw - 0.95) / 6)];
-  slide.addTable(rows, { x: x + 0.15, y: tableY, w: tw, colW, rowH: 0.22, margin: [0, 0.04, 0, 0.04], objectName: 'Tabel Summary Regional' });
+  const colW = [0.97, 0.5, 0.48, 0.52, 0.58, 0.75, 0.75].map((n) => (n * tw) / 4.55);
+  slide.addTable(rows, { x: x + 0.15, y: tableY, w: tw, colW, rowH: [HEAD_H, ...Array(rows.length - 1).fill(0.22)], margin: [0, 0.04, 0, 0.04], objectName: 'Tabel Summary Regional' });
   const note = data.prevDateISO
-    ? `Δ = Closed per ${dayMonthYear(data.dateISO)} dikurangi Closed per ${dayMonthYear(data.prevDateISO)} (data VSWR terakhir ${prev}).`
+    ? `Δ = Closed per ${dayMonthYear(data.dateISO)} - Closed per ${dayMonthYear(data.prevDateISO)} (${prev}).`
     : `Belum ada data VSWR ${prev} sebagai pembanding.`;
   slide.addText(note, {
     x: x + 0.15, y: tableEnd + 0.07, w: w - 0.3, h: 0.18, margin: 0,

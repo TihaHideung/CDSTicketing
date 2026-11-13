@@ -53,6 +53,7 @@ export default function Dashboard({
   const [availabilityWeeksError, setAvailabilityWeeksError] = useState('');
   // Bulan KPI (dari kolom Period) yang tersedia di database untuk slide Profiling KPI.
   const [easWeeks, setEasWeeks] = useState([]);
+  const [easMonths, setEasMonths] = useState([]);
   const [easWeeksLoading, setEasWeeksLoading] = useState(false);
   const [easWeeksError, setEasWeeksError] = useState('');
   const [kpiMonths, setKpiMonths] = useState([]);
@@ -61,42 +62,55 @@ export default function Dashboard({
 
   // Report PPT selalu Weekly. Ini daftar minggu yang punya data (dipakai dropdown di ExportModal).
   const getReportWeeks = useCallback(() => listReportPeriods(trendLog, trendCriteria, 'weekly'), [trendLog, trendCriteria]);
-  const weeklyTrendRows = useMemo(() => {
-    if (sourceMode !== SOURCE_INAP) return [];
+  // Rata-rata Cell Down per regional untuk tiap minggu (Jumat-Kamis) dan tiap bulan kalender.
+  const { weeklyTrendRows, monthlyTrendRows } = useMemo(() => {
+    if (sourceMode !== SOURCE_INAP) return { weeklyTrendRows: [], monthlyTrendRows: [] };
     const criteria = { ...trendCriteria, regionalFilter: ALL_KEY, category: 'CellDown' };
     const dailyRows = buildFilteredDailyTrendByRegion(trendLog, REGIONS, criteria);
-    const buckets = new Map();
-    for (const row of dailyRows) {
-      const period = getPeriodBucket(row.date, 'weekly');
-      if (!buckets.has(period.key)) {
-        buckets.set(period.key, {
-          key: period.key,
-          label: period.label,
-          sums: Object.fromEntries(REGIONS.map((region) => [region, 0])),
-          days: 0,
-        });
+    const pad = (n) => String(n).padStart(2, '0');
+    const build = (periodType) => {
+      const buckets = new Map();
+      for (const row of dailyRows) {
+        const period = getPeriodBucket(row.date, periodType);
+        if (!buckets.has(period.key)) {
+          buckets.set(period.key, {
+            key: period.key,
+            label: period.label,
+            sums: Object.fromEntries(REGIONS.map((region) => [region, 0])),
+            days: 0,
+          });
+        }
+        const bucket = buckets.get(period.key);
+        for (const region of REGIONS) bucket.sums[region] += Number(row[region]) || 0;
+        bucket.days++;
       }
-      const bucket = buckets.get(period.key);
-      for (const region of REGIONS) bucket.sums[region] += Number(row[region]) || 0;
-      bucket.days++;
-    }
-    return Array.from(buckets.values())
-      .sort((a, b) => a.key.localeCompare(b.key))
-      .map((bucket) => {
-        const endDate = new Date(`${bucket.key}T00:00:00`);
-        endDate.setDate(endDate.getDate() + 6);
-        const dateTo = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
-        return {
-          key: bucket.key,
-          label: bucket.label,
-          rangeLabel: `${bucket.label} (${bucket.key} - ${dateTo})`,
-          values: Object.fromEntries(REGIONS.map((region) => [region, Math.ceil(bucket.sums[region] / bucket.days)])),
-        };
-      });
+      return Array.from(buckets.values())
+        .sort((a, b) => a.key.localeCompare(b.key))
+        .map((bucket) => {
+          let rangeLabel = bucket.label;
+          if (periodType === 'weekly') {
+            const endDate = new Date(`${bucket.key}T00:00:00`);
+            endDate.setDate(endDate.getDate() + 6);
+            const dateTo = `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}`;
+            rangeLabel = `${bucket.label} (${bucket.key} - ${dateTo})`;
+          }
+          return {
+            key: bucket.key,
+            label: bucket.label,
+            rangeLabel,
+            values: Object.fromEntries(REGIONS.map((region) => [region, Math.ceil(bucket.sums[region] / bucket.days)])),
+          };
+        });
+    };
+    return { weeklyTrendRows: build('weekly'), monthlyTrendRows: build('monthly') };
   }, [sourceMode, trendLog, trendCriteria]);
   const getWeeklyTrendWeeks = useCallback(
     () => weeklyTrendRows.slice().reverse().map(({ key, rangeLabel }) => ({ key, label: rangeLabel })),
     [weeklyTrendRows]
+  );
+  const getMonthlyTrendMonths = useCallback(
+    () => monthlyTrendRows.slice().reverse().map(({ key, rangeLabel }) => ({ key, label: rangeLabel })),
+    [monthlyTrendRows]
   );
   const loadKpiMonths = async () => {
     setKpiMonths([]);
@@ -120,23 +134,33 @@ export default function Dashboard({
   // Minggu (Jumat-Kamis) yang punya data EAS dan VSWR, terbaru dulu -> pilihan Slide 4 & 5 Weekly Huddle.
   const loadEasWeeks = async () => {
     setEasWeeks([]);
+    setEasMonths([]);
     setEasWeeksError('');
     setEasWeeksLoading(true);
     try {
       const { getEasVswrHistory } = await import('../lib/dbApi.js');
       const history = await getEasVswrHistory();
       const weeks = new Map(); // key -> { key, label, eas, vswr }
+      const months = new Map();
       for (const rec of Array.isArray(history) ? history : []) {
         if (!rec?.dateISO) continue;
         const hasEas = Boolean(rec.metrics?.easReport?.extended && rec.metrics?.easReport?.quickwin);
         const hasVswr = Array.isArray(rec.raw?.vswr?.nopRows) && rec.raw.vswr.nopRows.length > 0;
         if (!hasEas && !hasVswr) continue;
-        const bucket = getPeriodBucket(rec.dateISO, 'weekly');
-        const w = weeks.get(bucket.key) || { key: bucket.key, label: bucket.label, eas: false, vswr: false };
-        w.eas = w.eas || hasEas;
-        w.vswr = w.vswr || hasVswr;
-        weeks.set(bucket.key, w);
+        for (const [store, type] of [[weeks, 'weekly'], [months, 'monthly']]) {
+          const bucket = getPeriodBucket(rec.dateISO, type);
+          const w = store.get(bucket.key) || { key: bucket.key, label: bucket.label, eas: false, vswr: false };
+          w.eas = w.eas || hasEas;
+          w.vswr = w.vswr || hasVswr;
+          store.set(bucket.key, w);
+        }
       }
+      setEasMonths(
+        [...months.values()]
+          .filter((m) => m.eas && m.vswr)
+          .sort((a, b) => b.key.localeCompare(a.key))
+          .map((m) => ({ key: m.key, label: m.label }))
+      );
       const dm = (iso) => new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`));
       const endOf = (iso) => new Date(Date.parse(`${iso}T00:00:00Z`) + 6 * 86400000).toISOString().slice(0, 10);
       setEasWeeks(
@@ -200,7 +224,7 @@ export default function Dashboard({
     };
   }, [trendLog, trendCriteria]);
 
-  const handleConfirmExport = async ({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, kpiMonthTo, easWeek, uploadDateFrom, uploadDateTo }) => {
+  const handleConfirmExport = async ({ excel, reportPpt, weeklyHuddle, reportKey, weekFrom, weekTo, availabilityFrom, availabilityTo, kpiMonthTo, easWeek, monthlyReport, monthlyKpiMonthTo, monthlyAvailabilityFrom, monthlyAvailabilityTo, monthFrom, monthTo, easMonth, uploadDateFrom, uploadDateTo }) => {
     setExporting(true);
     setExportError('');
     try {
@@ -221,26 +245,41 @@ export default function Dashboard({
           fileName: `CDS_Monitoring_Report_Cell_Down_${reportKey}.pptx`,
         });
       }
+      // Data harian Cell Down (per regional, per NOP, per NOP di tiap regional) untuk slide trend Weekly/Monthly.
+      const buildTrendInputs = () => {
+        const anomalyCriteria = { ...trendCriteria, regionalFilter: ALL_KEY, category: 'CellDown' };
+        const { rows: dailyNopRows } = buildFilteredDailyTrendByNop(trendLog, anomalyCriteria);
+        const dailyRows = buildFilteredDailyTrendByRegion(trendLog, REGIONS, anomalyCriteria);
+        const dailyNopByRegion = Object.fromEntries(
+          REGIONS.map((region) => [region, buildFilteredDailyTrendByNop(trendLog, { ...anomalyCriteria, regionalFilter: region })])
+        );
+        return { dailyNopRows, dailyRows, dailyNopByRegion };
+      };
       if (weeklyHuddle) {
         // Weekly Huddle = 1 file, 5 slide: Profiling KPI, Trend Weekly Availability, Trend Weekly Cell Down, EAS Validation, VSWR.
         const selectedWeeks = weeklyTrendRows.filter((row) => row.key >= weekFrom && row.key <= weekTo);
         if (!selectedWeeks.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
-        const anomalyCriteria = { ...trendCriteria, regionalFilter: ALL_KEY, category: 'CellDown' };
-        const { rows: dailyNopRows } = buildFilteredDailyTrendByNop(trendLog, anomalyCriteria);
-        // Trend daily per regional (grafik daily minggu terakhir di slide Weekly Trend Cell Down).
-        const dailyRows = buildFilteredDailyTrendByRegion(trendLog, REGIONS, anomalyCriteria);
-        // Trend daily per NOP di tiap regional (batang per NOP di 3 kartu regional).
-        const dailyNopByRegion = Object.fromEntries(
-          REGIONS.map((region) => [region, buildFilteredDailyTrendByNop(trendLog, { ...anomalyCriteria, regionalFilter: region })])
-        );
         const { getAvailability, getKpi, getEasVswrHistory } = await import('../lib/dbApi.js');
         const { exportWeeklyHuddlePpt } = await import('../lib/exportWeeklyHuddlePpt.js');
         await exportWeeklyHuddlePpt({
           kpi: { rows: await getKpi(), monthTo: Number(kpiMonthTo) },
-          trend: { rows: weeklyTrendRows, dailyNopRows, dailyRows, dailyNopByRegion, fromWeek: weekFrom, toWeek: weekTo },
+          trend: { rows: weeklyTrendRows, ...buildTrendInputs(), fromWeek: weekFrom, toWeek: weekTo },
           availability: { rows: await getAvailability(), weekFrom: Number(availabilityFrom), weekTo: Number(availabilityTo) },
           eas: { history: await getEasVswrHistory(), weekKey: easWeek },
           fileName: `CDS_Monitoring_Weekly_Huddle_${selectedWeeks[0].label}_${selectedWeeks[selectedWeeks.length - 1].label}.pptx`,
+        });
+      }
+      if (monthlyReport) {
+        // Monthly Report = 5 slide yang sama; slide Cell Down, EAS Validation, dan VSWR ditampilkan per bulan.
+        const selectedMonths = monthlyTrendRows.filter((row) => row.key >= monthFrom && row.key <= monthTo);
+        if (!selectedMonths.length) throw new Error('Tidak ada data Cell Down pada rentang bulan yang dipilih.');
+        const { getAvailability, getKpi, getEasVswrHistory } = await import('../lib/dbApi.js');
+        const { exportMonthlyReportPpt } = await import('../lib/exportWeeklyHuddlePpt.js');
+        await exportMonthlyReportPpt({
+          kpi: { rows: await getKpi(), monthTo: Number(monthlyKpiMonthTo) },
+          trend: { rows: monthlyTrendRows, ...buildTrendInputs(), fromWeek: monthFrom, toWeek: monthTo },
+          availability: { rows: await getAvailability(), weekFrom: Number(monthlyAvailabilityFrom), weekTo: Number(monthlyAvailabilityTo) },
+          eas: { history: await getEasVswrHistory(), weekKey: easMonth },
         });
       }
       setShowExport(false);
@@ -377,6 +416,8 @@ export default function Dashboard({
           availabilityWeeksLoading={availabilityWeeksLoading}
           availabilityWeeksError={availabilityWeeksError}
           easWeeks={easWeeks}
+          easMonths={easMonths}
+          getMonthlyTrendMonths={getMonthlyTrendMonths}
           easWeeksLoading={easWeeksLoading}
           easWeeksError={easWeeksError}
           kpiMonths={kpiMonths}

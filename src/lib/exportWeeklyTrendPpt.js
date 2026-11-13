@@ -2,7 +2,7 @@ import pptxgen from 'pptxgenjs';
 import JSZip from 'jszip';
 import { REGIONS } from './constants.js';
 import { getPeriodBucket } from './aggregate.js';
-import { getSlideChartPaths, normalizeComboXml } from './pptxUtils.js';
+import { addStandardHeaderFooter, getSlideChartPaths, normalizeComboXml } from './pptxUtils.js';
 
 /*
  * Export "Trend Weekly Cell Down | Area 1 & Regional"
@@ -85,13 +85,13 @@ function formatAverage(value) {
   return fmt(Math.round(value));
 }
 
-function analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, selectedKeys) {
+function analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, selectedKeys, period = 'weekly') {
   const results = [];
   const selectedKeySet = new Set(selectedKeys);
   const sortedDaily = (dailyNopRows || []).slice().sort((a, b) => a.date.localeCompare(b.date));
   const dailyByWeek = new Map();
   for (const daily of sortedDaily) {
-    const weekKey = getPeriodBucket(daily.date, 'weekly').key;
+    const weekKey = getPeriodBucket(daily.date, period).key;
     if (!dailyByWeek.has(weekKey)) dailyByWeek.set(weekKey, []);
     dailyByWeek.get(weekKey).push(daily);
   }
@@ -362,7 +362,8 @@ function addBadge(slide, delta, x, y, w, objectName) {
     fill: { color: palette.fill },
     line: { color: palette.fill, width: 0.5 },
     fontFace: FONT,
-    fontSize: 12,
+    // teks panjang (mis. "vs Sep 2026" di mode monthly) dikecilkan supaya tetap satu baris
+    fontSize: Math.max(8, Math.min(12, Math.floor((w * 72) / (delta.text.length * 0.62)))),
     bold: true,
     color: palette.color,
     align: 'center',
@@ -418,29 +419,42 @@ function addComboChart(pptx, slide, { name, labels, values, color, barColor, ...
 }
 
 // Legenda warna manual (kotak + nama), dibungkus ke beberapa baris dan diratakan tengah.
-function layoutSwatchLegend(items, width) {
-  const itemW = (it) => 0.09 + 0.05 + it.name.length * 0.064 + 0.14;
-  const rows = [[]];
-  let used = 0;
-  for (const it of items) {
-    if (used && used + itemW(it) > width) {
-      rows.push([]);
-      used = 0;
+// Maksimal 2 baris: kalau tidak muat, huruf dan jarak dikecilkan, lalu nama dipendekkan.
+function layoutSwatchLegend(items, width, maxRows = 2) {
+  const tries = [
+    { fontSize: 7.5, cw: 0.056, gap: 0.12, short: 99 },
+    { fontSize: 7, cw: 0.051, gap: 0.1, short: 99 },
+    { fontSize: 6.5, cw: 0.047, gap: 0.08, short: 99 },
+    { fontSize: 6.5, cw: 0.047, gap: 0.08, short: 11 },
+  ];
+  let layout = null;
+  for (const t of tries) {
+    const list = items.map((it) => ({ ...it, name: it.name.length > t.short ? `${it.name.slice(0, t.short - 1)}…` : it.name }));
+    const itemW = (it) => 0.09 + 0.05 + it.name.length * t.cw + t.gap;
+    const rows = [[]];
+    let used = 0;
+    for (const it of list) {
+      if (used && used + itemW(it) > width) {
+        rows.push([]);
+        used = 0;
+      }
+      rows[rows.length - 1].push(it);
+      used += itemW(it);
     }
-    rows[rows.length - 1].push(it);
-    used += itemW(it);
+    layout = { rows, itemW, gap: t.gap, cw: t.cw, fontSize: t.fontSize, height: rows.length * 0.17 };
+    if (rows.length <= maxRows) break;
   }
-  return { rows, itemW, height: rows.length * 0.17 };
+  return layout;
 }
 
 function addSwatchLegend(slide, layout, { x, y, w, name }) {
   layout.rows.forEach((row, r) => {
-    const rowW = row.reduce((sum, it) => sum + layout.itemW(it), 0) - 0.14;
+    const rowW = row.reduce((sum, it) => sum + layout.itemW(it), 0) - layout.gap;
     let lx = x + (w - rowW) / 2;
     const ly = y + r * 0.17;
     for (const it of row) {
       slide.addShape('rect', { x: lx, y: ly + 0.04, w: 0.09, h: 0.09, fill: { color: it.color }, line: { color: it.color, width: 0 }, objectName: `${name} ${it.name} Warna` });
-      slide.addText(it.name, { x: lx + 0.14, y: ly, w: it.name.length * 0.064 + 0.1, h: 0.17, margin: 0, fontFace: FONT, fontSize: 7.5, color: C.muted, valign: 'middle', wrap: false, isTextBox: true, objectName: `${name} ${it.name}` });
+      slide.addText(it.name, { x: lx + 0.14, y: ly, w: it.name.length * layout.cw + 0.1, h: 0.17, margin: 0, fontFace: FONT, fontSize: layout.fontSize, color: C.muted, valign: 'middle', wrap: false, isTextBox: true, objectName: `${name} ${it.name}` });
       lx += layout.itemW(it);
     }
   });
@@ -467,13 +481,14 @@ function packNopSlots(series, dayCount) {
 }
 
 /**
- * Batang berkelompok: tiap hari satu kelompok batang (satu batang per seri), angka total di atasnya.
+ * Batang berkelompok: tiap hari satu kelompok batang (satu batang per seri); angka total tiap hari
+ * ditaruh sejajar di baris atas grafik (tinggi sama untuk semua hari).
  * series = [{ name, values, color }], totals = jumlah per hari (untuk label).
  */
-function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barLabels, headroom, pad, gap = 70, legend = true }) {
+function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barLabels, headroom, labelFrac = 0.88, gap = 70, legend = true }) {
   const maxBar = labels.map((_, i) => Math.max(0, ...series.map((s) => s.values[i])));
   const axisMax = niceMax(Math.max(...maxBar, 1) * headroom);
-  const labelPos = maxBar.map((v) => v + axisMax * pad); // posisi label total (di atas batang tertinggi)
+  const labelPos = maxBar.map(() => axisMax * labelFrac); // angka total sejajar di satu baris atas, tidak ikut tinggi batang
   slide.addChart(
     [
       {
@@ -528,10 +543,19 @@ function addClusterChart(pptx, slide, { labels, series, totals, x, y, w, h, barL
 }
 
 /** Tambahkan slide Trend Weekly ke deck `pptx` yang sudah ada. Mengembalikan { chartSpecs, table } untuk injectDataLabels. */
-export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows = [], dailyNopByRegion = {}, fromWeek, toWeek, logoData }) {
+/**
+ * period 'weekly'  : kartu atas = trend weekly (rentang minggu) + daily minggu terakhir.
+ * period 'monthly' : kartu atas = trend monthly (rentang bulan) + weekly di bulan terakhir
+ *                    (rata-rata harian per minggu, hanya hari yang ada di bulan itu).
+ * `rows` = [{ key, label, values:{regional} }] sesuai period; fromWeek/toWeek = key awal/akhir rentang.
+ */
+export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows = [], dailyNopByRegion = {}, fromWeek, toWeek, period = 'weekly', logoData }) {
+  const monthly = period === 'monthly';
+  const mainWord = monthly ? 'Monthly' : 'Weekly';
+  const subWord = monthly ? 'Weekly' : 'Daily';
   const allRows = rows.slice().sort((a, b) => a.key.localeCompare(b.key));
   const selected = allRows.filter((row) => row.key >= fromWeek && row.key <= toWeek);
-  if (!selected.length) throw new Error('Tidak ada data Cell Down pada rentang minggu yang dipilih.');
+  if (!selected.length) throw new Error(`Tidak ada data Cell Down pada rentang ${monthly ? 'bulan' : 'minggu'} yang dipilih.`);
 
   const lastIdxAll = allRows.findIndex((r) => r.key === selected[selected.length - 1].key);
   const prevRow = lastIdxAll > 0 ? allRows[lastIdxAll - 1] : null;
@@ -544,45 +568,53 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
   const lastLabel = labels[labels.length - 1];
   const rangeText = `${labels[0]}-${lastLabel}`;
   const lastTotal = total[total.length - 1];
-  const extremeIncreases = analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, [selected[selected.length - 1].key]);
+  const extremeIncreases = analyzeExtremeWeeklyIncreases(allRows, dailyNopRows, [selected[selected.length - 1].key], period);
   const increaseSummary = buildExtremeIncreaseSummary(extremeIncreases);
 
-  // Trend daily di minggu terakhir yang dipilih (grafik kanan kartu Area + 3 kartu regional).
+  // Grafik kanan kartu Area + 3 kartu regional: rincian periode terakhir.
+  //  weekly  -> tiap hari di minggu terakhir (nilai harian apa adanya)
+  //  monthly -> tiap minggu di bulan terakhir (rata-rata harian minggu itu, hanya hari di bulan tsb)
   const lastKey = selected[selected.length - 1].key;
   const dailyLast = (dailyRows || [])
-    .filter((r) => r.date && getPeriodBucket(r.date, 'weekly').key === lastKey)
+    .filter((r) => r.date && getPeriodBucket(r.date, period).key === lastKey)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (!dailyLast.length) throw new Error(`Data harian ${lastLabel} tidak tersedia untuk grafik trend daily.`);
-  const dailyLabels = dailyLast.map((r) => formatDayMonth(r.date));
+  if (!dailyLast.length) throw new Error(`Data harian ${lastLabel} tidak tersedia untuk grafik trend ${subWord.toLowerCase()}.`);
+  const regionRowByDate = new Map(dailyLast.map((r) => [r.date, r]));
+  const subs = monthly
+    ? (() => {
+        const groups = new Map();
+        for (const r of dailyLast) {
+          const wk = getPeriodBucket(r.date, 'weekly');
+          if (!groups.has(wk.key)) groups.set(wk.key, { label: wk.label, dates: [] });
+          groups.get(wk.key).dates.push(r.date);
+        }
+        return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, g]) => g);
+      })()
+    : dailyLast.map((r) => ({ label: formatDayMonth(r.date), dates: [r.date] }));
+  const avgOf = (dates, getter, rounder) => {
+    const vals = dates.map(getter);
+    const mean = vals.reduce((sum, v) => sum + v, 0) / (vals.length || 1);
+    return monthly ? rounder(mean) : mean;
+  };
+  const dailyLabels = subs.map((sub) => sub.label);
   const dailyByRegion = Object.fromEntries(
-    REGIONS.map((region) => [region, dailyLast.map((r) => Number(r[region]) || 0)])
+    REGIONS.map((region) => [
+      region,
+      subs.map((sub) => avgOf(sub.dates, (d) => Number(regionRowByDate.get(d)?.[region]) || 0, Math.ceil)),
+    ])
   );
-  const dailyTotal = dailyLast.map((_, i) => REGIONS.reduce((sum, region) => sum + dailyByRegion[region][i], 0));
+  const dailyTotal = subs.map((_, i) => REGIONS.reduce((sum, region) => sum + dailyByRegion[region][i], 0));
 
   const slide = pptx.addSlide();
   slide.background = { color: 'FFFFFF' };
 
-  // Header: bar merah + judul + logo
-  slide.addShape(pptx.ShapeType.rect, {
-    x: 0, y: 0, w: 13.333, h: 0.14,
-    fill: { color: C.topBar }, line: { color: C.topBar, width: 0 },
-    objectName: 'Header Bar',
+  // Header + footer sama dengan slide Profiling KPI dan Trend Weekly Availability
+  addStandardHeaderFooter(pptx, slide, {
+    title: `Trend ${mainWord} Cell Down`,
+    subtitle: `${AREA_LABEL.toUpperCase()} & REGIONAL – ${rangeText}`,
+    logoData,
   });
-  slide.addText(
-    [
-      { text: 'Trend Weekly Cell Down  ', options: { color: C.titleRed } },
-      { text: `| ${AREA_LABEL}  & Regional`, options: { color: C.titleBlue } },
-    ],
-    {
-      x: 0.1, y: 0.2, w: 9.2, h: 0.4, margin: [0, 0, 0, 0.1],
-      fontFace: TITLE_FONT, fontSize: 18, bold: true, valign: 'middle',
-      isTextBox: true, objectName: 'Judul',
-    }
-  );
-  if (logoData) {
-    slide.addImage({ data: logoData, x: 10.64, y: 0.14, w: 2.53, h: 0.575, objectName: 'Logo' });
-  }
 
   // ---- Kartu atas: total semua regional
   slide.addShape(pptx.ShapeType.roundRect, {
@@ -603,15 +635,15 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
   addBadge(slide, buildDelta(lastTotal, prevTotal, prevRow?.label, true), 0.89, 2.51, 2.75, 'Total Badge');
 
   // Judul kecil di atas masing-masing grafik kartu Area
-  slide.addText(`Trend Weekly ${rangeText}`, {
+  slide.addText(`Trend ${mainWord} ${rangeText}`, {
     x: 3.78, y: 1.02, w: 3.7, h: 0.22, margin: 0,
     fontFace: FONT, fontSize: 10, bold: true, color: C.muted,
-    isTextBox: true, objectName: 'Judul Chart Weekly',
+    isTextBox: true, objectName: 'Judul Chart Utama',
   });
-  slide.addText(`Trend Daily ${lastLabel}`, {
+  slide.addText(`Trend ${subWord} ${lastLabel}`, {
     x: 7.78, y: 1.02, w: 4.7, h: 0.22, margin: 0,
     fontFace: FONT, fontSize: 10, bold: true, color: C.muted,
-    isTextBox: true, objectName: 'Judul Chart Daily',
+    isTextBox: true, objectName: 'Judul Chart Rincian',
   });
   slide.addShape(pptx.ShapeType.line, {
     x: 7.64, y: 1.08, w: 0, h: 2.38,
@@ -619,7 +651,7 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
     objectName: 'Pemisah Chart',
   });
 
-  // chart1.xml = total weekly (rentang terpilih)
+  // chart1.xml = total per periode (rentang terpilih)
   const chartSpecs = [];
   addComboChart(pptx, slide, {
     name: AREA_LABEL, labels, values: total, color: C.totalLine, barColor: C.totalLine,
@@ -642,7 +674,7 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
     series: REGIONS.map((region) => ({ name: region, values: dailyByRegion[region], color: (REGION_STYLE[region] || FALLBACK_STYLE).bar || FALLBACK_STYLE.line })),
     totals: dailyTotal,
     x: 7.66, y: 1.26, w: 5.0, h: 2.33,
-    barLabels: true, headroom: 1.55, pad: 0.2, gap: 100,
+    barLabels: true, headroom: 1.7, gap: 100,
   });
   chartSpecs.push(areaCluster);
 
@@ -664,11 +696,11 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
     const series = activeNops.length
       ? activeNops.map((nop, n) => ({
           name: nopLabel(nop),
-          values: dailyLast.map((r) => Number(nopByDate.get(r.date)?.[nop]) || 0),
+          values: subs.map((sub) => avgOf(sub.dates, (d) => Number(nopByDate.get(d)?.[nop]) || 0, Math.round)),
           color: NOP_PALETTE[n % NOP_PALETTE.length],
         }))
       : [{ name: region, values: dailyByRegion[region], color: style.bar || style.line }];
-    const totals = dailyLast.map((_, d) => series.reduce((sum, srs) => sum + srs.values[d], 0));
+    const totals = dailyByRegion[region]; // angka di atas kelompok = nilai regional pada hari/minggu tsb
 
     slide.addShape(pptx.ShapeType.roundRect, {
       x, y: cardY, w: cardW, h: cardH, rectRadius: 0.08,
@@ -685,7 +717,7 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
       fontFace: FONT, fontSize: 16, bold: true, color: C.ink, align: 'right',
       isTextBox: true, objectName: `${region} Angka`,
     });
-    slide.addText(`Trend daily ${lastLabel}`, {
+    slide.addText(`Trend ${subWord.toLowerCase()} ${lastLabel}`, {
       x: x + 0.2, y: cardY + 0.47, w: 1.6, h: 0.24, margin: 0,
       fontFace: FONT, fontSize: 10, color: C.muted,
       isTextBox: true, objectName: `${region} Periode`,
@@ -702,10 +734,10 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
     chartSpecs.push(
       addClusterChart(pptx, slide, {
         labels: dailyLabels,
-        series: packNopSlots(series, dailyLast.length),
+        series: packNopSlots(series, subs.length),
         totals,
         x: x + 0.02, y: cardY + 0.82, w: cardW - 0.04, h: chartH,
-        barLabels: false, headroom: 1.22, pad: 0.07, gap: 150, legend: false,
+        barLabels: false, headroom: 1.25, gap: 150, legend: false,
       })
     );
     addSwatchLegend(slide, legendLayout, { x: x + 0.2, y: cardY + 0.82 + chartH + 0.04, w: cardW - 0.4, name: `${region} Legenda` });
@@ -713,13 +745,13 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
 
   if (increaseSummary) {
     slide.addText('Penyebab Kenaikan', {
-      x: 0.72, y: 6.82, w: 11.9, h: 0.2, margin: 0,
+      x: 0.72, y: 6.8, w: 11.9, h: 0.18, margin: 0,
       fontFace: FONT, fontSize: 12, bold: true, color: C.ink,
       fill: { color: 'FFFF00' },
       isTextBox: true, objectName: 'Judul Penyebab Kenaikan',
     });
     slide.addText(increaseSummary, {
-      x: 0.72, y: 7.02, w: 11.9, h: 0.4, margin: 0,
+      x: 0.72, y: 6.98, w: 11.9, h: 0.34, margin: 0,
       fontFace: FONT, fontSize: 12, color: C.ink, valign: 'top',
       fill: { color: 'FFFF00' },
       breakLine: false, fit: 'shrink', isTextBox: true, objectName: 'Ringkasan Penyebab Kenaikan',
@@ -733,14 +765,14 @@ export function addWeeklyTrendSlide(pptx, { rows, dailyNopRows = [], dailyRows =
   return { chartSpecs, table };
 }
 
-export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], dailyRows = [], dailyNopByRegion = {}, fromWeek, toWeek, logoData }) {
+export async function buildWeeklyTrendPptx({ rows, dailyNopRows = [], dailyRows = [], dailyNopByRegion = {}, fromWeek, toWeek, period = 'weekly', logoData }) {
   const pptx = new pptxgen();
   pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
   pptx.author = 'CDS Monitoring';
   pptx.subject = `Trend Weekly Cell Down ${AREA_LABEL}`;
   pptx.title = `Trend Weekly Cell Down ${AREA_LABEL}`;
   pptx.theme = { headFontFace: TITLE_FONT, bodyFontFace: FONT, lang: 'id-ID' };
-  const { chartSpecs, table } = addWeeklyTrendSlide(pptx, { rows, dailyNopRows, dailyRows, dailyNopByRegion, fromWeek, toWeek, logoData });
+  const { chartSpecs, table } = addWeeklyTrendSlide(pptx, { rows, dailyNopRows, dailyRows, dailyNopByRegion, fromWeek, toWeek, period, logoData });
   const buffer = await pptx.write({ outputType: 'arraybuffer' });
   const zip = await JSZip.loadAsync(buffer);
   await injectDataLabels(zip, await getSlideChartPaths(zip, 1), chartSpecs, table);
